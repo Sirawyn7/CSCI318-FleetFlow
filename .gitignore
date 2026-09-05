@@ -1,0 +1,91 @@
+### Java ###
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+replay_pid*
+
+### Maven ###
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.properties
+
+### Gradle (in case any service uses it) ###
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### Spring Boot ###
+HELP.md
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### VS Code ###
+.vscode/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Logs ###
+*.log
+logs/
+
+### H2 Database (local dev) ###
+*.db
+*.mv.db
+*.trace.db
+
+### Environment / Secrets ###
+# LLM API keys and other local secrets — never commit these
+.env
+.env.local
+application-local.yml
+application-local.properties
+application-secrets.yml
+application-secrets.properties
+
+### Docker ###
+docker-compose.override.yml
+# Kafka/broker data volumes if bind-mounted locally
+kafka-data/
+zookeeper-data/
+
+### Test / Coverage ###
+/coverage/
+.testcontainers.properties
+
+### Postman ###
+# Keep the shared collection, ignore personal environment exports with local secrets
+*.postman_environment.json
