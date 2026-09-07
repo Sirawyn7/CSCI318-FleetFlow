@@ -73,6 +73,8 @@ Every event is published by the service that owns the aggregate it belongs to.
 
 **Do not invent new event names** without adding them here first.
 
+This table lists publishers only. **Before assuming a service consumes an event, check the publisher/consumer matrix in §6.1 of `requirements-outline.md`** — it marks each consumer edge as documented or inferred, and inferred edges need confirmation before you build against them.
+
 ## Data ownership
 
 | Service | Tables |
@@ -132,13 +134,15 @@ The report requires evidence captured *as work happens*:
 - **`/docs/decisions/`** — architecture decision records for non-obvious calls
 - Keep the README current with setup and run instructions
 
+**End-of-branch habit:** when wrapping up work on a branch, if the session produced a notable AI-assisted decision worth Section 5 evidence, draft the corresponding `ai-collaboration-log.md` entry (or entries) in chat for a team member to review and paste in — never write directly into the log. If the decision already has an ADR in `docs/decisions/`, keep the log entry to a short pointer (prompt/context, which ADR, one-line decision) rather than re-stating the ADR's full reasoning — the log is breadth evidence across many small interactions, the ADR is depth evidence for the few calls substantial enough to need one; don't duplicate the same paragraphs into both. Skip this step entirely when nothing in the session was a real AI-assisted decision worth logging — not every branch needs an entry.
+
 ## Working style
 
 - **Ask before adding dependencies, changing locked decisions, or inventing event names.**
 - Prefer clarity over cleverness — this code is read by markers, not just run.
 - When a task spans multiple services, confirm which slice is being worked on. Ownership: Tenzin (Order, Fleet, Notification wiring, Docker Compose), Steven (Dispatch, GPS simulator, dispatch agent), Landon (Tracking, stream processing, explainer agent).
 - Small, reviewable commits. This is a shared repo with three people.
-- When programming, fast forward local where relevant and branch off main for changes
+- **Never commit directly to `main`.** Every change, docs included, is made on a branch: fast-forward local `main` first, branch off it, do the work, then open a PR (or hand off for merge) rather than pushing straight to `main`.
 
 ## Reference
 

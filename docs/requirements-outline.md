@@ -172,6 +172,35 @@ Every event is published by the service owning the aggregate it belongs to. **Lo
 
 Naming convention: `<Aggregate><PastTenseVerb>`. Topic naming: `fleetflow.<context>.<event>` (e.g. `fleetflow.fleet.courier-location-updated`).
 
+### 6.1 Publisher/Consumer Matrix
+
+§6 above documents publishers only. That one-sidedness is exactly how a non-existent `Order → Fleet` edge once made it into a work instruction unchallenged — with no consumer column, nothing contradicted it. This table adds the other half, built by tracing every FR rather than assumed.
+
+Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **inferred** (implied by an FR but never stated anywhere). Inferred cells are not settled — confirm each one with the owning service pair before building against it, not after.
+
+| Event | Publisher | Consumers |
+|---|---|---|
+| `OrderPlaced` | Order | Dispatch *(documented — `AGENTS.md` line 104)* |
+| `OrderCancelled` | Order | Dispatch *(inferred — FR3, "releases any held assignment")* |
+| `CourierRegistered` | Fleet | Dispatch *(documented — §7)* |
+| `CourierAvailabilityChanged` | Fleet | Dispatch *(documented — §7; also the FR9 offline trigger)* |
+| `CourierLocationUpdated` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11–FR13)* |
+| `OrderAssigned` | Dispatch | Tracking *(inferred — starts the delivery)*, Notification *(documented — FR15)*, Fleet *(inferred — FR6 active-order count, see ADR 0002)*, Order *(inferred — FR2 status)* |
+| `OrderReassigned` | Dispatch | Tracking, Notification, Fleet *(all inferred)* |
+| `AssignmentFailed` | Dispatch | Order, Notification *(both inferred)* |
+| `DeliveryStarted` | Tracking | Order *(inferred — FR2 status)*, Notification *(documented — FR15, "in transit")* |
+| `DeliveryEtaUpdated` | Tracking | Notification *(inferred)* |
+| `DeliveryNearDestination` | Tracking | Notification *(documented — FR15)* |
+| `DeliveryArrived` | Tracking | Notification *(inferred)* |
+| `DeliveryAtRisk` | Tracking | Dispatch *(documented — FR9)*, Notification *(documented — FR15)* |
+| `DeliveryCompleted` | Tracking | Order *(inferred — FR2)*, Notification *(documented — FR15)*, Fleet *(inferred — FR6 active-order count, see ADR 0002)* |
+| `NotificationSent` | Notification | none — terminal, audit-only. Worth confirming this is wanted at all rather than assumed. |
+
+Two schema gaps surfaced directly by building this matrix, both raised as ADRs rather than resolved here:
+
+- **Dispatch has no open-orders backlog to reason over for FR8**, despite consuming `OrderPlaced` — see `docs/decisions/0001-dispatch-open-orders-backlog.md` (Dispatch service owner).
+- **Fleet has no field for the FR6 active-order count**, despite now consuming `OrderAssigned` / `DeliveryCompleted` — see `docs/decisions/0002-fleet-active-order-count.md` (Fleet service owner).
+
 ---
 
 ## 7. Inter-Service Communication (Locked)
@@ -196,11 +225,13 @@ Database-per-service. No shared tables. Cross-context references held as IDs onl
 
 | Service | Owns |
 |---|---|
-| **Order** | `orders`, `order_items`, `order_status_history` |
-| **Fleet** | `couriers`, `vehicles`, `availability_windows`, `courier_locations` (current position) |
-| **Dispatch** | `assignments`, `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model) |
-| **Tracking** | `deliveries`, `delivery_track_points` (delivery-scoped, derived from stream), `eta_snapshots`, `delivery_events` |
-| **Notification** | `notifications`, `notification_templates`, `agent_conversations` |
+| **Order** | `orders`, `order_items`, `order_status_history`, `processed_events`¹ |
+| **Fleet** | `couriers`, `vehicles`, `availability_windows`, `courier_locations` (current position), `processed_events`¹ |
+| **Dispatch** | `assignments`, `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model), `processed_events`¹ |
+| **Tracking** | `deliveries`, `delivery_track_points` (delivery-scoped, derived from stream), `eta_snapshots`, `delivery_events`, `processed_events`¹ |
+| **Notification** | `notifications`, `notification_templates`, `agent_conversations`, `processed_events`¹ |
+
+¹ `processed_events` — the idempotency ledger, keyed on `EventEnvelope.eventId()` (see `fleetflow-contracts`). An **infrastructure concern, not a domain entity** — it belongs in `infrastructure/`, never `domain/`, and does not appear in the DDD pattern classification in §9.3. Added here because §8 is a report deliverable compared against the real schema, and a table present in five databases but absent from this table reads as an omission. Every service in this row is a genuine event consumer per the §6.1 matrix, so every service needs one — confirm the exact consuming event set per service as its slice is built, per §6.1.
 
 Note the deliberate distinction between **owned source-of-truth data** (Fleet's `courier_locations`) and **derived read models** (Dispatch's `courier_availability_view`, Tracking's `delivery_track_points`) — worth calling out explicitly in the report as evidence of correct bounded-context isolation.
 
