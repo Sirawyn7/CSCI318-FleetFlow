@@ -1,0 +1,8 @@
+# The simulator is an external REST client, not a Spring Boot service: it posts
+# location pings to Fleet's REST endpoint and serves nothing of its own, so it
+# runs with no embedded web server.
+spring:
+  main:
+    web-application-type: none
+  application:
+    name: gps-simulator

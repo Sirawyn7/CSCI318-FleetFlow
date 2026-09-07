@@ -45,3 +45,16 @@ had no field for it and wasn't documented as consuming any events at all.
 `couriers`, rather than a separate table.
 **Rationale:** See `docs/decisions/0002-fleet-active-order-count.md` for full
 reasoning.
+
+---
+
+## 2026-09-07 — Spring Boot version pin for the scaffold (Steven)
+**Prompt/context:** Asked the assistant to scaffold the parent POM. It flagged that
+Spring Boot's current GA is major version 4 (4.1.1), a jump from the 3.x line, and
+asked which to pin to before writing any POM.
+**Proposed by agent:** Two options in docs/decisions/0003-spring-boot-version-pin.md —
+Boot 4.1.1 + Spring Cloud 2025.1.2, or Boot 3.5.16 + Spring Cloud 2025.0.3.
+**Decision:** Accepted option 2 — Spring Boot 3.5.16 + Spring Cloud 2025.0.3.
+**Rationale:** See docs/decisions/0003-spring-boot-version-pin.md for full reasoning
+(timeline risk on a fixed 6-week/3-person project outweighs using the newest release,
+particularly given the two graded LangChain4j agents are scheduled for week 7).
