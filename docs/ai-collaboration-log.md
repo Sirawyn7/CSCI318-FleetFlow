@@ -58,3 +58,17 @@ Boot 4.1.1 + Spring Cloud 2025.1.2, or Boot 3.5.16 + Spring Cloud 2025.0.3.
 **Rationale:** See docs/decisions/0003-spring-boot-version-pin.md for full reasoning
 (timeline risk on a fixed 6-week/3-person project outweighs using the newest release,
 particularly given the two graded LangChain4j agents are scheduled for week 7).
+
+---
+
+## 2026-09-07 — fleetflow-contracts: Published Language vs Shared Kernel (Steven)
+**Prompt/context:** Implementing Commit 2 of the approved scaffold plan — a
+zero-dependency `fleetflow-contracts` module carrying the 15 locked §6 events, shared
+across all five services.
+**Proposed by agent:** Module design plus a self-review against the §6.1 consumer
+matrix, written up in `docs/decisions/0004-fleetflow-contracts-published-language.md`.
+**Decision:** Accepted option 3 — Published Language, not a Shared Kernel.
+**Rationale:** See `docs/decisions/0004-fleetflow-contracts-published-language.md` for
+full reasoning.
+
+---

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.fleetflow</groupId>
+        <artifactId>fleetflow-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>fleetflow-contracts</artifactId>
+    <packaging>jar</packaging>
+
+    <name>FleetFlow Contracts</name>
+    <description>Published-language event contracts shared by the five FleetFlow services. Zero dependencies by design — see docs/decisions/0004-fleetflow-contracts-published-language.md.</description>
+
+    <!-- Deliberately no <dependencies> block: this module must never depend on Spring,
+         JPA, Jackson or Lombok. An empty dependency set is the enforcement mechanism. -->
+</project>

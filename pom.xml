@@ -25,6 +25,7 @@
     </properties>
 
     <modules>
+        <module>fleetflow-contracts</module>
         <module>order-service</module>
         <module>fleet-service</module>
         <module>dispatch-service</module>
