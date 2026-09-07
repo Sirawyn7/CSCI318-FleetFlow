@@ -132,6 +132,12 @@ The report requires evidence captured *as work happens*:
 
 - **`/docs/ai-collaboration-log.md`** — humans write the decision and rationale. You may capture raw material (what was prompted, what was generated), but **do not write the accept/reject/modify rationale** — that judgment must come from the team member.
 - **`/docs/decisions/`** — architecture decision records for non-obvious calls
+- **`/docs/prompts/`** — verbatim prompt (and response) text worth quoting directly in the report, not every prompt. "Notable" is too vague to act on by itself, so save one here **at the moment you'd want to quote it in the report**, using any of these three triggers rather than waiting to judge it later:
+  - the prompt behind an **accepted ADR** in `docs/decisions/`
+  - a prompt where the AI's first answer was **rejected or modified**, not accepted outright — the log says "Modified," and that back-and-forth is the most interesting Section 5 evidence there is
+  - a prompt demonstrating a **deliberate prompting technique** worth explaining (constrained tool access, structured output, multi-turn refinement of an agent's behaviour)
+
+  Use the template in `docs/prompts/0000-template.md`, numbered like the ADRs. Waiting until Week 11 to reconstruct which raw prompt underpinned which decision does not work — capture it the session it happens.
 - Keep the README current with setup and run instructions
 
 **End-of-branch habit:** when wrapping up work on a branch, if the session produced a notable AI-assisted decision worth Section 5 evidence, draft the corresponding `ai-collaboration-log.md` entry (or entries) in chat for a team member to review and paste in — never write directly into the log. If the decision already has an ADR in `docs/decisions/`, keep the log entry to a short pointer (prompt/context, which ADR, one-line decision) rather than re-stating the ADR's full reasoning — the log is breadth evidence across many small interactions, the ADR is depth evidence for the few calls substantial enough to need one; don't duplicate the same paragraphs into both. Skip this step entirely when nothing in the session was a real AI-assisted decision worth logging — not every branch needs an entry.
