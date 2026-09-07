@@ -1,0 +1,12 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: tracking-service
+  datasource:
+    url: jdbc:h2:file:./data/trackingdb
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
