@@ -16,7 +16,7 @@ the full architecture and hard constraints, and
 | `notification-service` | Service | 8085 | Templated alerts, conversational status explainer (FR15-FR16) |
 | `gps-simulator` | External client | — | Posts simulated location pings to Fleet's REST endpoint (FR10) |
 | `fleetflow-contracts` | Contract artifact | — | Shared event records for the 15-event §6 catalogue |
-| Kafka | Broker | 9092 | Event backbone (no local broker/Docker Compose wired up yet) |
+| Kafka | Broker | 9092 | Event backbone. Fleet and Dispatch have real bindings (`CourierRegistered`); no Docker Compose wired up yet for the other services |
 
 ## Structural exceptions
 
@@ -59,6 +59,17 @@ database file under `<service>/data/`):
 mvn -pl order-service spring-boot:run
 ```
 
-Kafka is a mandated dependency of the project but no broker or Docker Compose setup
-exists yet — that lands in a later commit. Until then, `spring-cloud-starter-stream-kafka`
-is present on each service's classpath with no bindings configured.
+Kafka is a mandated dependency of the project. Fleet and Dispatch now have a real
+binding for `CourierRegistered` (see `docs/decisions/0004-fleetflow-contracts-published-language.md`
+for the pattern); the other services still have `spring-cloud-starter-stream-kafka` on
+the classpath with no bindings configured, and there's no committed Docker Compose setup
+yet — that's a later commit.
+
+For local development or a manual demo, run a single-node broker yourself, e.g.:
+
+```
+docker run -p 9092:9092 apache/kafka:latest
+```
+
+(Confirm the current tag on Docker Hub — pin an exact version rather than `latest` for
+anything beyond a one-off local demo.)
