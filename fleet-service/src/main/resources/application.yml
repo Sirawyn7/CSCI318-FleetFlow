@@ -10,3 +10,17 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
+  h2:
+    console:
+      enabled: true
+  cloud:
+    stream:
+      # Binding name convention: <eventName-camelCase>-out-0, one binding per published
+      # event. Used imperatively via StreamBridge.send(bindingName, event) rather than a
+      # Supplier bean, since publishing is triggered by a REST call, not polled.
+      bindings:
+        courierRegistered-out-0:
+          destination: fleetflow.fleet.courier-registered
+      kafka:
+        binder:
+          brokers: ${KAFKA_BROKERS:localhost:9092}

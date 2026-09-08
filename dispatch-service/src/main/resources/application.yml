@@ -10,3 +10,21 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
+  h2:
+    console:
+      enabled: true
+  cloud:
+    function:
+      # Registers the functional consumer bean(s) below with Spring Cloud Stream.
+      definition: courierRegisteredConsumer
+    stream:
+      # Binding name convention: <functionBeanName>-in-0. Consumer group = service name,
+      # so every dispatch-service instance shares one logical subscription rather than
+      # each receiving its own copy of every event.
+      bindings:
+        courierRegisteredConsumer-in-0:
+          destination: fleetflow.fleet.courier-registered
+          group: dispatch-service
+      kafka:
+        binder:
+          brokers: ${KAFKA_BROKERS:localhost:9092}
