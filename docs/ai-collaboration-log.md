@@ -72,3 +72,15 @@ matrix, written up in `docs/decisions/0004-fleetflow-contracts-published-languag
 full reasoning.
 
 ---
+
+## 2026-09-08 — LLM model selection for FR8/FR16 (Steven)
+**Prompt/context:** Closing the open LLM model decision from `requirements-outline.md`
+§12.1, which was blocking FR8 and FR16 heading into week 7.
+**Proposed by agent:** Three options (Gemini free tier, Groq free tier, self-hosted
+Ollama) evaluated against the $0 budget constraint and FR8's locked 5-second dispatch
+timeout, written up in `docs/decisions/0005-llm-model-selection.md`.
+**Decision:** Accepted option 1 — Gemini (`gemini-2.0-flash`) via the free Google AI
+Studio API.
+**Rationale:** See `docs/decisions/0005-llm-model-selection.md` for full reasoning.
+
+---
