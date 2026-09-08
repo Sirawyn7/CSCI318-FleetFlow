@@ -80,4 +80,8 @@ public class Courier {
     public CourierStatus getStatus() {
         return status;
     }
+
+    public void changeAvailability(boolean available) {
+        this.status = available ? CourierStatus.AVAILABLE : CourierStatus.OFFLINE;
+    }
 }
