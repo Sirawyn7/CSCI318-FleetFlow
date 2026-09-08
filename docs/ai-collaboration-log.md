@@ -84,3 +84,9 @@ Studio API.
 **Rationale:** See `docs/decisions/0005-llm-model-selection.md` for full reasoning.
 
 ---
+
+## 2026-09-08 — UC1 Manage Delivery Order implementation (Tenzin)
+**Prompt/context:** Asked the assistant for help implementing UC1 – Manage Delivery Order in the Order service, covering order creation, querying an order, and cancelling an order. I also needed help understanding how the existing domain, application, API, and infrastructure layers should be used.
+**Proposed by agent:** The assistant proposed an Order domain model using `Order`, `Address`, `OrderStatus`, and `OrderRepository`; an application service and `OrderEventPort`; JPA persistence classes in infrastructure; a REST `OrderController`; and an `OrderEventPublisher` for the existing `OrderPlaced` and `OrderCancelled` contracts. The assistant also helped diagnose compilation and Spring Boot startup errors while implementing these files.
+**Decision:** [Accepted / Modified — write which one applies.]
+**Rationale:** [Write this part in your own words. Explain why you chose this structure and how separating domain, application, API, and infrastructure responsibilities fits the project's DDD architecture.]
