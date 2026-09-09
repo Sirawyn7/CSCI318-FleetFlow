@@ -1,7 +1,5 @@
 # FleetFlow — Delivery & Logistics Tracking Platform
 
-> Replace "FleetFlow" throughout once the team finalises the application name.
-
 ## What this project is
 
 A university group project (CSCI318) building an AI-powered, cloud-native delivery and logistics tracking platform as a microservices system. **This is graded coursework** — architectural correctness and demonstrable patterns matter more than feature count or clever optimisation. The final deliverable is a working repository **and** a written report that must evidence specific patterns.
