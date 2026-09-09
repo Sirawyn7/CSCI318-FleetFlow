@@ -1,7 +1,6 @@
 package com.fleetflow.order.infrastructure;
 
 import com.fleetflow.contracts.EventEnvelope;
-import com.fleetflow.contracts.Topics;
 import com.fleetflow.contracts.common.GeoPoint;
 import com.fleetflow.contracts.order.OrderCancelled;
 import com.fleetflow.contracts.order.OrderPlaced;
@@ -49,7 +48,9 @@ public class OrderEventPublisher implements OrderEventPort {
                 order.getRequestedDeliveryBy()
         );
 
-        streamBridge.send(Topics.ORDER_PLACED, event);
+        if (!streamBridge.send("orderPlaced-out-0", event)) {
+            throw new IllegalStateException("OrderPlaced publication failed");
+        }
     }
 
     @Override
@@ -68,6 +69,8 @@ public class OrderEventPublisher implements OrderEventPort {
                 "Cancelled by customer"
         );
 
-        streamBridge.send(Topics.ORDER_CANCELLED, event);
+        if (!streamBridge.send("orderCancelled-out-0", event)) {
+            throw new IllegalStateException("OrderCancelled publication failed");
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.fleetflow.order.api;
 
 import java.time.Instant;
+import java.net.URI;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
@@ -13,7 +14,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.fleetflow.order.application.OrderApplicationService;
 import com.fleetflow.order.domain.Address;
-import com.fleetflow.order.domain.Order;
+import com.fleetflow.order.domain.OrderItem;
+import java.util.List;
+import com.fleetflow.order.domain.OrderCancellationException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/orders")
@@ -26,8 +31,12 @@ public class OrderController {
     }
 
     @PostMapping
-    public Order createOrder(@RequestBody CreateOrderRequest request) {
+    public ResponseEntity<OrderResponse> createOrder(@RequestBody CreateOrderRequest request) {
 
+        if (request.pickupLatitude() == null || request.pickupLongitude() == null
+                || request.dropoffLatitude() == null || request.dropoffLongitude() == null) {
+            throw new IllegalArgumentException("Pickup and dropoff coordinates are required");
+        }
         Address pickupAddress = new Address(
                 request.pickupStreet(),
                 request.pickupSuburb(),
@@ -46,20 +55,44 @@ public class OrderController {
                 request.dropoffLongitude()
         );
 
-        return orderApplicationService.createOrder(
+        var order = orderApplicationService.createOrder(
                 request.customerId(),
                 pickupAddress,
                 dropoffAddress,
                 request.packageDetails(),
                 request.serviceLevel(),
-                request.requestedDeliveryBy()
+                request.requestedDeliveryBy(),
+                request.items() == null ? List.of(new OrderItem(request.packageDetails(), 1))
+                        : request.items().stream().map(item -> {
+                            if (item == null || item.quantity() == null) {
+                                throw new IllegalArgumentException("Each item requires description and quantity");
+                            }
+                            return new OrderItem(item.description(), item.quantity());
+                        }).toList()
         );
+        return ResponseEntity.created(URI.create("/orders/" + order.getId())).body(OrderResponse.from(order));
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<OrderResponse> cancelOrder(@PathVariable UUID id) {
+        try {
+            return orderApplicationService.cancelOrder(id).map(OrderResponse::from)
+                    .map(ResponseEntity::ok).orElse(ResponseEntity.notFound().build());
+        } catch (OrderCancellationException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        }
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<String> invalidRequest(IllegalArgumentException ex) {
+        return ResponseEntity.badRequest().body(ex.getMessage());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Order> getOrder(@PathVariable UUID id) {
+    public ResponseEntity<OrderResponse> getOrder(@PathVariable UUID id) {
 
         return orderApplicationService.getOrder(id)
+                .map(OrderResponse::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -71,19 +104,21 @@ public class OrderController {
             String pickupSuburb,
             String pickupState,
             String pickupPostcode,
-            double pickupLatitude,
-            double pickupLongitude,
+            Double pickupLatitude,
+            Double pickupLongitude,
 
             String dropoffStreet,
             String dropoffSuburb,
             String dropoffState,
             String dropoffPostcode,
-            double dropoffLatitude,
-            double dropoffLongitude,
+            Double dropoffLatitude,
+            Double dropoffLongitude,
 
             String packageDetails,
             String serviceLevel,
-            Instant requestedDeliveryBy
+            Instant requestedDeliveryBy,
+            List<ItemRequest> items
     ) {
     }
+    public record ItemRequest(String description, Integer quantity) { }
 }
