@@ -183,7 +183,7 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | Event | Publisher | Consumers |
 |---|---|---|
 | `OrderPlaced` | Order | Dispatch *(documented — `AGENTS.md` line 104)* |
-| `OrderCancelled` | Order | Dispatch *(inferred — FR3, "releases any held assignment")* |
+| `OrderCancelled` | Order | Dispatch *(documented — ADR 0001, open_orders_view removal; FR3's "releases any held assignment" against `assignments` remains inferred)* |
 | `CourierRegistered` | Fleet | Dispatch *(documented — §7)* |
 | `CourierAvailabilityChanged` | Fleet | Dispatch *(documented — §7; also the FR9 offline trigger)* |
 | `CourierLocationUpdated` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11–FR13)* |
@@ -200,7 +200,7 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 
 Two schema gaps surfaced directly by building this matrix, both raised as ADRs rather than resolved here:
 
-- **Dispatch has no open-orders backlog to reason over for FR8**, despite consuming `OrderPlaced` — see `docs/decisions/0001-dispatch-open-orders-backlog.md` (Dispatch service owner).
+- **Dispatch has no open-orders backlog to reason over for FR8**, despite consuming `OrderPlaced` — see `docs/decisions/0001-dispatch-open-orders-backlog.md` (Dispatch service owner). Resolved: `open_orders_view` is built (§8), consuming `OrderPlaced`/`OrderCancelled`; `OrderAssigned` removal is deferred to FR7/FR8.
 - **Fleet has no field for the FR6 active-order count**, despite now consuming `OrderAssigned` / `DeliveryCompleted` — see `docs/decisions/0002-fleet-active-order-count.md` (Fleet service owner).
 
 ---
@@ -229,7 +229,7 @@ Database-per-service. No shared tables. Cross-context references held as IDs onl
 |---|---|
 | **Order** | `orders`, `order_items`, `order_status_history`, `processed_events`¹ |
 | **Fleet** | `couriers`, `vehicles`, `availability_windows`, `courier_locations` (current position), `processed_events`¹ |
-| **Dispatch** | `assignments`, `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model), `processed_events`¹ |
+| **Dispatch** | `assignments`, `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model), `open_orders_view` (derived read model, ADR 0001), `processed_events`¹ |
 | **Tracking** | `deliveries`, `delivery_track_points` (delivery-scoped, derived from stream), `eta_snapshots`, `delivery_events`, `processed_events`¹ |
 | **Notification** | `notifications`, `notification_templates`, `agent_conversations`, `processed_events`¹ |
 
