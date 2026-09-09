@@ -37,4 +37,16 @@ public class CourierAvailabilityProjectionService {
         availabilityRepository.save(snapshot);
         processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
     }
+
+    @Transactional
+    public void applyAvailabilityChange(UUID eventId, String eventType, UUID courierId, boolean available, Instant updateAt) {
+        if (processedEventRepository.existsById(eventId)) {
+            return;
+        }
+        availabilityRepository.findById(courierId).ifPresent(view -> {
+            view.markAvailability(available, updateAt);
+            availabilityRepository.save(view);
+        });
+        processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
+    }
 }

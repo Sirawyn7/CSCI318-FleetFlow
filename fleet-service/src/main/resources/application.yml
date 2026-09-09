@@ -19,6 +19,8 @@ spring:
       # event. Used imperatively via StreamBridge.send(bindingName, event) rather than a
       # Supplier bean, since publishing is triggered by a REST call, not polled.
       bindings:
+        courierAvailabilityChanged-out-0:
+          destination: fleetflow.fleet.courier-availability-changed
         courierRegistered-out-0:
           destination: fleetflow.fleet.courier-registered
       kafka:
