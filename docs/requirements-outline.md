@@ -1,6 +1,6 @@
 # Delivery & Logistics Tracking Platform — Requirements Outline
 
-**Working title:** *FleetFlow* (placeholder — replace with your group's chosen name)
+**Application name:** *FleetFlow* — locked, no longer a placeholder (§12 closed item, see "Closed since v2")
 **Team:** Tenzin, Steven, Landon
 **Status:** Draft v2 — for pre-implementation sign-off
 **Revision note:** v2 adds business objectives, use case grouping, user stories, sub-domain classification, and locks four design decisions previously left open.
@@ -107,6 +107,8 @@ GPS Simulator posts pings to a **Fleet REST endpoint**; Fleet validates, updates
 
 **Decision (locked):** Location is a Fleet-context concern. The simulator is an external client, not an event producer — it has no direct Kafka access. This keeps every event published by the service that owns the aggregate it belongs to.
 
+**Simulator fidelity (locked):** Random-walk movement, not route-based. Settled in the Week 5 team discussion that §12 previously carried as "leaning random-walk" pending formal close-out.
+
 ### UC6 — Monitor Delivery in Real Time *(Tracking Service)*
 
 **FR11 — Real-time ETA recalculation** **[STREAM]** → *O1*
@@ -181,7 +183,7 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | Event | Publisher | Consumers |
 |---|---|---|
 | `OrderPlaced` | Order | Dispatch *(documented — `AGENTS.md` line 104)* |
-| `OrderCancelled` | Order | Dispatch *(inferred — FR3, "releases any held assignment")* |
+| `OrderCancelled` | Order | Dispatch *(documented — ADR 0001, open_orders_view removal; FR3's "releases any held assignment" against `assignments` remains inferred)* |
 | `CourierRegistered` | Fleet | Dispatch *(documented — §7)* |
 | `CourierAvailabilityChanged` | Fleet | Dispatch *(documented — §7; also the FR9 offline trigger)* |
 | `CourierLocationUpdated` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11–FR13)* |
@@ -198,7 +200,7 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 
 Two schema gaps surfaced directly by building this matrix, both raised as ADRs rather than resolved here:
 
-- **Dispatch has no open-orders backlog to reason over for FR8**, despite consuming `OrderPlaced` — see `docs/decisions/0001-dispatch-open-orders-backlog.md` (Dispatch service owner).
+- **Dispatch has no open-orders backlog to reason over for FR8**, despite consuming `OrderPlaced` — see `docs/decisions/0001-dispatch-open-orders-backlog.md` (Dispatch service owner). Resolved: `open_orders_view` is built (§8), consuming `OrderPlaced`/`OrderCancelled`; `OrderAssigned` removal is deferred to FR7/FR8.
 - **Fleet has no field for the FR6 active-order count**, despite now consuming `OrderAssigned` / `DeliveryCompleted` — see `docs/decisions/0002-fleet-active-order-count.md` (Fleet service owner).
 
 ---
@@ -227,7 +229,7 @@ Database-per-service. No shared tables. Cross-context references held as IDs onl
 |---|---|
 | **Order** | `orders`, `order_items`, `order_status_history`, `processed_events`¹ |
 | **Fleet** | `couriers`, `vehicles`, `availability_windows`, `courier_locations` (current position), `processed_events`¹ |
-| **Dispatch** | `assignments`, `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model), `processed_events`¹ |
+| **Dispatch** | `assignments`, `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model), `open_orders_view` (derived read model, ADR 0001), `processed_events`¹ |
 | **Tracking** | `deliveries`, `delivery_track_points` (delivery-scoped, derived from stream), `eta_snapshots`, `delivery_events`, `processed_events`¹ |
 | **Notification** | `notifications`, `notification_templates`, `agent_conversations`, `processed_events`¹ |
 
@@ -278,6 +280,7 @@ Per §8. Include an ER-style diagram per service plus the ownership table.
 ### 9.6 Agentic AI Component
 - **Patterns:** tool use / function calling (both agents), ReAct-style reason-then-act (dispatch agent), event-triggered invocation (FR8) vs. conversational request-response (FR16)
 - **Integration:** LangChain4j `AiServices` with `@Tool`-annotated methods
+- **Model (locked):** Google Gemini `gemini-2.0-flash`, via the free Google AI Studio API, for both FR8 and FR16. See `docs/decisions/0005-llm-model-selection.md` for the full option comparison and rationale.
 - **Sample code:** agent interface, tool definition, invoking service, captured input/output pair
 
 The two agents are **structurally different by design** — an event-triggered decision-maker versus a conversational assistant. This is the differentiator in Section 3.6.
@@ -343,7 +346,14 @@ Also required for the cover page: a **member contribution/accountability log**, 
 
 ## 12. Remaining Open Decisions
 
-1. **LLM model selection** — outstanding since Week 4; blocks FR8 and FR16 work starting Week 7. **Close this week.**
-2. **GPS simulator fidelity** — random-walk vs. route-based (leaning random-walk per Week 5 discussion)
-3. **Geofence radius and SLA thresholds** — pick defaults now, tune during testing
-4. **Application name** — needed for the cover page and package namespace; `com.fleetflow` used as placeholder throughout
+1. **Geofence radius and SLA thresholds** — pick defaults now, tune during testing
+
+### Closed since v2
+
+- **LLM model selection** — closed. Google Gemini `gemini-2.0-flash`, via the free
+  Google AI Studio API, for both FR8 and FR16. See
+  `docs/decisions/0005-llm-model-selection.md` and §9.6.
+- **GPS simulator fidelity** — closed. Random-walk, per the Week 5 team discussion. See
+  UC5.
+- **Application name** — closed. *FleetFlow*, no longer a placeholder. See the title
+  block above.
