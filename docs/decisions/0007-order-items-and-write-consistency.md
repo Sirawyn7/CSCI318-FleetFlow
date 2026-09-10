@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-09-10
-**Owner:** Tenzin (Order Service)
+**Owner:** Tenzin
 
 ## Context
 
@@ -23,11 +23,11 @@ Requirements name the items table but do not specify its fields.
 
 ## Rationale
 
-Items remain within the Order aggregate and database, with no independently mutable
-collection exposed. The request remains compatible with existing callers.
-Flushing database writes before publishing detects constraint failures before an event
-is sent. A row lock serializes competing cancellations before they check state or publish;
-optimistic locking alone at commit would occur too late to prevent duplicate publication.
+Order items are part of an order, so they should be stored and checked together with the order instead of being managed separately. This keeps the order data together and follows the existing Order structure.
+
+Flushing the database before publishing helps find database errors before a Kafka event is sent. Locking the order during cancellation also prevents two requests from cancelling the same order at the same time and sending duplicate events.
+
+The downside is that another cancellation request may have to wait while the order is locked. This approach improves consistency, but it does not guarantee that the database and Kafka will always succeed together.
 
 ## Consequences
 

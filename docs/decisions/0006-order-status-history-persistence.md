@@ -47,6 +47,9 @@ No independent history repository is needed because history belongs to the aggre
 
 ## Rationale
 
+The review showed that the original implementation only kept the latest status on the order, which meant it could not represent the order's lifecycle over time. In a delivery workflow, that is not enough. we need to know when the order moved from one state to another, not just what it is right now. Keeping the current status on the order preserves the quick lookup for the live state, while adding a separate `order_status_history` record for each transition preserves the timeline of changes.
+
+This approach fits the domain model better than storing only the current value. The order owns its lifecycle, so the status history should be part of the aggregate rather than managed by a separate service. It keeps the data model consistent, reduces duplication, and makes the API more useful by allowing both the current state and the historical progression to be queried together. The extra implementation work is justified because it gives a complete and accurate record of how an order moved through the system.
 
 ## Consequences
 
