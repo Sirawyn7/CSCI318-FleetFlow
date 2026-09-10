@@ -1,9 +1,7 @@
 # ADR 0006 — Order status history persistence
 
-**Status:** Implemented following UC1 review; team rationale pending
-
+**Status:** Accepted
 **Owner:** Tenzin
-
 **Date:** 2026-09-08
 
 ## Context
@@ -49,14 +47,6 @@ No independent history repository is needed because history belongs to the aggre
 
 ## Rationale
 
-To be completed by Tenzin if this option is accepted.
-
-Points to consider in your own reasoning:
-
-* FR2 requires status information and timestamps.
-* Keeping the current status on `orders` makes normal order queries simple.
-* Keeping a separate history allows previous status changes to be retrieved.
-* The table remains owned by the Order service, maintaining the bounded-context boundary.
 
 ## Consequences
 

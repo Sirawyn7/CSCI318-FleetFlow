@@ -1,6 +1,6 @@
 # ADR 0007 — Order items and write consistency
 
-**Status:** Implemented; item-field assumption awaits team review
+**Status:** Accepted
 **Date:** 2026-09-10
 **Owner:** Tenzin (Order Service)
 
@@ -13,7 +13,7 @@ Requirements name the items table but do not specify its fields.
 ## Implementation
 
 - Model items as immutable description/quantity values owned by Order, stored in an
-  ordered JPA element collection. Description and quantity are the initial field assumption.
+  ordered JPA element collection. Description and quantity are the accepted fields for this slice.
 - Keep package details as the package-level summary. Requests without items create one
   item with that description and quantity 1; explicit empty lists and invalid items fail.
 - Preserve old orders without inventing item quantities: existing rows may return no items.
@@ -21,12 +21,16 @@ Requirements name the items table but do not specify its fields.
 - Acquire a pessimistic root-row lock before cancellation and hold it through commit.
   Read-only queries do not request that lock.
 
-## Technical rationale and consequences
+## Rationale
 
 Items remain within the Order aggregate and database, with no independently mutable
 collection exposed. The request remains compatible with existing callers.
-A row lock serializes competing cancellations before they check state or publish;
+Flushing database writes before publishing detects constraint failures before an event
+is sent. A row lock serializes competing cancellations before they check state or publish;
 optimistic locking alone at commit would occur too late to prevent duplicate publication.
+
+## Consequences
+
 The lock is held during synchronous publication, so broker latency can delay contenders.
 
 Flushing is not an atomic database/Kafka commit. A failure after a successful publication
