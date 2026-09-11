@@ -16,6 +16,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.shaded.org.yaml.snakeyaml.events.Event;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
@@ -69,6 +70,46 @@ class CourierAvailabilityChangedConsumerIntegrationTest {
         assertEquals("VAN", view.getVehicleType());
         assertEquals(20, view.getCapacity());
         assertEquals("ZONE_A", view.getOperatingZone());
+    }
+
+    @Test
+    void courierAvailabilityChangedArrivingBeforeRegistrationIsRetriedSuccessfullyOnRedelivery()
+            throws InterruptedException {
+        UUID courierId = UUID.randomUUID();
+        UUID availabilityEventId = UUID.randomUUID();
+
+        EventEnvelope earlyAvailabilityEnvelope = new EventEnvelope(
+                availabilityEventId, "CourierAvailabilityChanged", Instant.now(), UUID.randomUUID().toString());
+        streamBridge.send(Topics.COURIER_AVAILABILITY_CHANGED,
+                new CourierAvailabilityChanged(earlyAvailabilityEnvelope, courierId, true));
+
+        Thread.sleep(3000);
+        assertTrue(availabilityRepository.findById(courierId).isEmpty());
+        assertTrue(processedEventRepository.findById(availabilityEventId).isEmpty());
+
+        EventEnvelope registeredEnvelope = new EventEnvelope(
+                UUID.randomUUID(), "CourierRegistered", Instant.now(), UUID.randomUUID().toString());
+        streamBridge.send(Topics.COURIER_REGISTERED,
+                new CourierRegistered(registeredEnvelope, courierId, "VAN", 20, "ZONE_A"));
+        awaitViewPresent(courierId);
+
+        streamBridge.send(Topics.COURIER_AVAILABILITY_CHANGED,
+                new CourierAvailabilityChanged(earlyAvailabilityEnvelope, courierId, true));
+
+        awaitAvailabilityBecomes(courierId, true);
+        assertTrue(processedEventRepository.findById(availabilityEventId).isPresent());
+    }
+
+    private void awaitAvailabilityBecomes(UUID courierId, boolean expected) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 15000;
+        while (System.currentTimeMillis() < deadline) {
+            boolean matched = availabilityRepository.findById(courierId).map(view -> view.isAvailable() == expected).orElse(false);
+            if (matched) {
+                return;
+            }
+            Thread.sleep(200);
+        }
+        throw new AssertionError("Timed out waiting for courier_availability_view.available to become " + expected);
     }
 
     private void awaitViewPresent(UUID courierId) throws InterruptedException {

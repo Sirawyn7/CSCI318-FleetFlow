@@ -8,6 +8,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.NoSuchElementException;
 
+/**
+ * Use-case orchestration and the transactional boundary (docs/AGENTS.md package rules),
+ * same shape as CourierRegistrationService. NoSuchElementException here is mapped to a
+ * 404 by ApiExceptionHandler in the api/ layer, so this stays a plain domain-level
+ * signal rather than an HTTP concern.
+ */
+
 @Service
 public class CourierAvailabilityService {
     private final CourierJpaRepository courierRepository;
