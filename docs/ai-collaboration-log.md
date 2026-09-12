@@ -84,3 +84,15 @@ Studio API.
 **Rationale:** See `docs/decisions/0005-llm-model-selection.md` for full reasoning.
 
 ---
+
+## 2026-09-12 — Fleet load event ordering for FR4/FR6 (Tenzin)
+**Prompt/context:** Asked the assistant to implement UC2's FR4 and FR6, leaving
+FR5 to my teammate.
+**Proposed by agent:** Keep the active-order count on Courier and add an order
+ledger to handle duplicate and out-of-order events; see
+`docs/decisions/0008-fleet-load-event-ordering.md`.
+**Decision:** Accepted the proposal to keep the active-order count on Courier and add a `courier_order_load` ledger.
+**Rationale:** See `docs/decisions/0008-fleet-load-event-ordering.md` for the rationale.
+**Prompt record:** `docs/prompts/0005-fleet-load-event-ordering.md`.
+
+---

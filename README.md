@@ -1,5 +1,55 @@
 # FleetFlow
 
+## UC2 — Fleet profiles and load (FR4, FR6)
+
+Fleet runs on port 8082. FR5 shift controls remain a separate team slice.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/couriers` | Register and publish `CourierRegistered` |
+| GET | `/api/couriers` | List profiles, including deactivated couriers |
+| GET | `/api/couriers/{id}` | View profile and active-order count |
+| PUT | `/api/couriers/{id}` | Replace vehicle type, capacity and operating zone |
+| POST | `/api/couriers/{id}/deactivate` | Deactivate a courier with no active orders |
+
+Registration and update accept, for example:
+
+```json
+{"vehicleType":"VAN","capacity":3,"operatingZone":"ZONE_A"}
+```
+
+GET, PUT and deactivation responses include `activeOrderCount` and `deactivated`.
+Invalid profile values return 400; missing couriers return 404; capacity and
+deactivation conflicts return 409. Deactivation is idempotent and separate from
+FR5's on/off-shift status. Capacity cannot be reduced below current load.
+
+Fleet consumes `fleetflow.dispatch.order-assigned` and
+`fleetflow.tracking.delivery-completed` in consumer group `fleet-service`.
+The load counter, order ledger and processed-event ledger commit together.
+Duplicate events do not double-count; completed orders stay completed even if their
+assignment arrives later. Rejected messages retry then go to the binder's dead-letter
+topics (`error.<source-topic>.fleet-service`) for investigation/replay.
+
+**Integration boundaries:** FR6 protects Fleet's local capacity invariant; consuming
+an already-published assignment cannot undo Dispatch's decision. Dispatch still
+needs its own assignment capacity checks. Profile updates and deactivation currently
+persist in Fleet only: the existing event catalogue has no profile-update or
+deactivation event, so these changes are not propagated to Dispatch's view in this
+slice. FR5 integration must respect the deactivation flag. Reassignment and
+cancellation load adjustments remain outside this slice, per ADR 0002.
+
+Run all Fleet tests (requires Docker for the real Kafka test):
+
+```text
+mvn -pl fleet-service -am test
+```
+
+Run domain, API and H2 persistence tests without Docker:
+
+```text
+mvn -pl fleet-service -am test -Dtest=CourierTest,CourierManagementTest,CourierRegistrationServiceTest,CourierControllerTest,CourierPersistenceTest,ContractBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false
+```
+
 An AI-powered, cloud-native delivery and logistics tracking platform built as a
 Spring Boot microservices system for CSCI318. See [`docs/AGENTS.md`](docs/AGENTS.md) for
 the full architecture and hard constraints, and

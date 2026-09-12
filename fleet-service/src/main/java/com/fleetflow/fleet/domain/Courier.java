@@ -31,6 +31,50 @@ public class Courier {
     @Enumerated(EnumType.STRING)
     private CourierStatus status;
 
+    private boolean deactivated;
+
+    private int activeOrderCount;
+
+    @jakarta.persistence.Version
+    private long version;
+
+    public void updateProfile(VehicleType vehicleType, int capacity, String operatingZone) {
+        if (vehicleType == null || capacity <= 0 || operatingZone == null || operatingZone.isBlank()) {
+            throw new IllegalArgumentException("Vehicle type, positive capacity and operating zone are required");
+        }
+        if (capacity < activeOrderCount) {
+            throw new IllegalStateException("Capacity cannot be below current load");
+        }
+        this.vehicleType = vehicleType;
+        this.capacity = capacity;
+        this.operatingZone = operatingZone;
+    }
+
+    public void deactivate() {
+        if (activeOrderCount > 0) {
+            throw new IllegalStateException("A courier with active orders cannot be deactivated");
+        }
+        deactivated = true;
+    }
+
+    public void assignOrder() {
+        if (deactivated || activeOrderCount >= capacity) {
+            throw new IllegalStateException("Courier is deactivated or at capacity");
+        }
+        activeOrderCount++;
+    }
+
+    public void completeOrder() {
+        if (activeOrderCount == 0) {
+            throw new IllegalStateException("Courier has no active orders");
+        }
+        activeOrderCount--;
+    }
+
+    public boolean isDeactivated() { return deactivated; }
+
+    public int getActiveOrderCount() { return activeOrderCount; }
+
     protected Courier() {
         // JPA
     }

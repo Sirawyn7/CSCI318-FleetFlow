@@ -14,13 +14,28 @@ spring:
     console:
       enabled: true
   cloud:
+    function:
+      definition: orderAssignedConsumer;deliveryCompletedConsumer
     stream:
       # Binding name convention: <eventName-camelCase>-out-0, one binding per published
       # event. Used imperatively via StreamBridge.send(bindingName, event) rather than a
       # Supplier bean, since publishing is triggered by a REST call, not polled.
       bindings:
+        orderAssignedConsumer-in-0:
+          destination: fleetflow.dispatch.order-assigned
+          group: fleet-service
+        deliveryCompletedConsumer-in-0:
+          destination: fleetflow.tracking.delivery-completed
+          group: fleet-service
         courierRegistered-out-0:
           destination: fleetflow.fleet.courier-registered
       kafka:
+        bindings:
+          orderAssignedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          deliveryCompletedConsumer-in-0:
+            consumer:
+              enableDlq: true
         binder:
           brokers: ${KAFKA_BROKERS:localhost:9092}
