@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import java.time.Instant;
 
 class CourierTest {
 
@@ -62,5 +63,44 @@ class CourierTest {
         courier.changeAvailability(false);
 
         assertEquals(CourierStatus.OFFLINE, courier.getStatus());
+    }
+
+    @Test
+    void updateLocationSetsCurrentLocationAndTimestamp() {
+        Courier courier = Courier.register(VehicleType.VAN, 20, "ZONE_A");
+        GeoCoordinate location = new GeoCoordinate(-33.87, 151.21);
+        Instant capturedAt = Instant.now();
+
+        courier.updateLocation(location, capturedAt);
+
+        assertEquals(location, courier.getCurrentLocation());
+        assertEquals(capturedAt, courier.getLocationUpdatedAt());
+    }
+
+    @Test
+    void updateLocationOverwritesThePreviousReading() {
+        Courier courier = Courier.register(VehicleType.VAN, 20, "ZONE_A");
+        courier.updateLocation(new GeoCoordinate(-33.87, 151.21), Instant.now());
+
+        GeoCoordinate newerLocation = new GeoCoordinate(-33.87, 151.21);
+        Instant newerCapturedAt = Instant.now().plusSeconds(5);
+        courier.updateLocation(newerLocation, newerCapturedAt);
+
+        assertEquals(newerLocation, courier.getCurrentLocation());
+        assertEquals(newerCapturedAt, courier.getLocationUpdatedAt());
+    }
+
+    @Test
+    void updateLocationRejectsNullLocation() {
+        Courier courier = Courier.register(VehicleType.VAN, 20, "ZONE_A");
+
+        assertThrows(IllegalArgumentException.class, () -> courier.updateLocation(null, null));
+    }
+
+    @Test
+    void updateLocationRejectsNullLocationUpdatedAt() {
+        Courier courier = Courier.register(VehicleType.VAN, 20, "ZONE_A");
+
+        assertThrows(IllegalArgumentException.class, () -> courier.updateLocation(new GeoCoordinate(0, 0), null));
     }
 }

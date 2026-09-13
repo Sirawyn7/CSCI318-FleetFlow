@@ -21,6 +21,8 @@ spring:
       bindings:
         courierAvailabilityChanged-out-0:
           destination: fleetflow.fleet.courier-availability-changed
+        courierLocationUpdated-out-0:
+          destination: fleetflow.fleet.courier-location-updated
         courierRegistered-out-0:
           destination: fleetflow.fleet.courier-registered
       kafka:

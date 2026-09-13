@@ -1,9 +1,6 @@
 package com.fleetflow.fleet.api;
 
-import com.fleetflow.fleet.application.ChangeCourierAvailabilityCommand;
-import com.fleetflow.fleet.application.CourierRegistrationService;
-import com.fleetflow.fleet.application.CourierAvailabilityService;
-import com.fleetflow.fleet.application.RegisterCourierCommand;
+import com.fleetflow.fleet.application.*;
 import com.fleetflow.fleet.domain.Courier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,10 +19,12 @@ public class CourierController {
 
     private final CourierRegistrationService registrationService;
     private final CourierAvailabilityService availabilityService;
+    private final CourierLocationService locationService;
 
-    public CourierController(CourierRegistrationService registrationService,  CourierAvailabilityService availabilityService) {
+    public CourierController(CourierRegistrationService registrationService,  CourierAvailabilityService availabilityService, CourierLocationService locationService) {
         this.registrationService = registrationService;
         this.availabilityService = availabilityService;
+        this.locationService = locationService;
     }
 
     @PostMapping
@@ -51,5 +50,26 @@ public class CourierController {
                 new ChangeCourierAvailabilityCommand(courierId, request.available()));
 
         return ResponseEntity.ok(new ChangeAvailabilityResponse(courier.getId(), courier.getStatus().name()));
+    }
+
+    /**
+     * FR10: GPS Simulator posts pings here. POST rather than PUT/PATCH -- each call is a
+     * new location reading (a fact that occurred at a point in time), not a partial edit
+     * of the courier resource, even though Fleet only persists the latest reading
+     * (locked decision, see CourierLocationUpdated's Javadoc).
+     */
+
+    @PostMapping("/{courierId}/location")
+    public ResponseEntity<IngestCourierLocationResponse> ingestLocation(
+            @PathVariable UUID courierId,
+            @RequestBody IngestCourierLocationRequest request) {
+        Courier courier = locationService.ingestLocation(
+                new IngestCourierLocationCommand(courierId, request.latitude(), request.longitude()));
+
+        return ResponseEntity.ok(new IngestCourierLocationResponse(
+                courier.getId(),
+                courier.getCurrentLocation().latitude(),
+                courier.getCurrentLocation().longitude(),
+                courier.getLocationUpdatedAt()));
     }
 }

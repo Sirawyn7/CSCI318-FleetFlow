@@ -1,11 +1,8 @@
 package com.fleetflow.fleet.domain;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -30,6 +27,11 @@ public class Courier {
 
     @Enumerated(EnumType.STRING)
     private CourierStatus status;
+
+    @Embedded
+    private GeoCoordinate currentLocation;
+
+    private Instant locationUpdatedAt;
 
     protected Courier() {
         // JPA
@@ -84,5 +86,32 @@ public class Courier {
 
     public void changeAvailability(boolean available) {
         this.status = available ? CourierStatus.AVAILABLE : CourierStatus.OFFLINE;
+    }
+
+    public GeoCoordinate getCurrentLocation() {
+        return currentLocation;
+    }
+
+    public Instant getLocationUpdatedAt() {
+        return locationUpdatedAt;
+    }
+
+    /**
+     * FR10: applies a validated location reading from a GPS ping. Coordinate-range
+     * validation lives in GeoCoordinate's own compact constructor ("Fleet validates" in
+     * the FR text); this method's only job is deciding what changes on the aggregate --
+     * only the latest reading is kept (locked decision, see CourierLocationUpdated's
+     * Javadoc), never a position history.
+     */
+
+    public void updateLocation(GeoCoordinate location, Instant capturedAt) {
+        if (location == null) {
+            throw new IllegalArgumentException("location is required");
+        }
+        if  (capturedAt == null) {
+            throw new IllegalArgumentException("capturedAt is required");
+        }
+        this.currentLocation = location;
+        this.locationUpdatedAt = capturedAt;
     }
 }
