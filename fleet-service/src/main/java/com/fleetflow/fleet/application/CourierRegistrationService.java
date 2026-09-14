@@ -29,7 +29,8 @@ public class CourierRegistrationService {
 
     @Transactional
     public Courier registerCourier(RegisterCourierCommand command) {
-        VehicleType vehicleType = VehicleType.valueOf(command.vehicleType().toUpperCase());
+        if (command.vehicleType() == null) throw new IllegalArgumentException("vehicleType is required");
+        VehicleType vehicleType = VehicleType.valueOf(command.vehicleType().toUpperCase(java.util.Locale.ROOT));
         Courier courier = Courier.register(vehicleType, command.capacity(), command.operatingZone());
         courierRepository.save(courier);
         eventPublisher.publish(courier);

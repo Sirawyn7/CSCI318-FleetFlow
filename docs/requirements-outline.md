@@ -187,7 +187,7 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | `CourierRegistered` | Fleet | Dispatch *(documented — §7)* |
 | `CourierAvailabilityChanged` | Fleet | Dispatch *(documented — §7; also the FR9 offline trigger)* |
 | `CourierLocationUpdated` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11–FR13)* |
-| `OrderAssigned` | Dispatch | Tracking *(inferred — starts the delivery)*, Notification *(documented — FR15)*, Fleet *(inferred — FR6 active-order count, see ADR 0002)*, Order *(inferred — FR2 status)* |
+| `OrderAssigned` | Dispatch | Tracking *(inferred — starts the delivery)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)*, Order *(inferred — FR2 status)* |
 | `OrderReassigned` | Dispatch | Tracking, Notification, Fleet *(all inferred)* |
 | `AssignmentFailed` | Dispatch | Order, Notification *(both inferred)* |
 | `DeliveryStarted` | Tracking | Order *(inferred — FR2 status)*, Notification *(documented — FR15, "in transit")* |
@@ -195,13 +195,13 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | `DeliveryNearDestination` | Tracking | Notification *(documented — FR15)* |
 | `DeliveryArrived` | Tracking | Notification *(inferred)* |
 | `DeliveryAtRisk` | Tracking | Dispatch *(documented — FR9)*, Notification *(documented — FR15)* |
-| `DeliveryCompleted` | Tracking | Order *(inferred — FR2)*, Notification *(documented — FR15)*, Fleet *(inferred — FR6 active-order count, see ADR 0002)* |
+| `DeliveryCompleted` | Tracking | Order *(inferred — FR2)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)* |
 | `NotificationSent` | Notification | none — terminal, audit-only. Worth confirming this is wanted at all rather than assumed. |
 
 Two schema gaps surfaced directly by building this matrix, both raised as ADRs rather than resolved here:
 
 - **Dispatch has no open-orders backlog to reason over for FR8**, despite consuming `OrderPlaced` — see `docs/decisions/0001-dispatch-open-orders-backlog.md` (Dispatch service owner). Resolved: `open_orders_view` is built (§8), consuming `OrderPlaced`/`OrderCancelled`; `OrderAssigned` removal is deferred to FR7/FR8.
-- **Fleet has no field for the FR6 active-order count**, despite now consuming `OrderAssigned` / `DeliveryCompleted` — see `docs/decisions/0002-fleet-active-order-count.md` (Fleet service owner).
+- **Fleet stores the FR6 active-order count on `couriers`**, consuming `OrderAssigned` / `DeliveryCompleted` with transactional event and order ledgers — see `docs/decisions/0002-fleet-active-order-count.md` (Fleet service owner).
 
 ---
 
@@ -228,7 +228,7 @@ Database-per-service. No shared tables. Cross-context references held as IDs onl
 | Service | Owns |
 |---|---|
 | **Order** | `orders`, `order_items`, `order_status_history`, `processed_events`¹ |
-| **Fleet** | `couriers`, `vehicles`, `availability_windows`, `courier_locations` (current position), `processed_events`¹ |
+| **Fleet** | `couriers`, `vehicles`, `availability_windows`, `courier_locations` (current position), `courier_order_load` (FR6 event-order ledger), `processed_events`¹ |
 | **Dispatch** | `assignments`, `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model), `open_orders_view` (derived read model, ADR 0001), `processed_events`¹ |
 | **Tracking** | `deliveries`, `delivery_track_points` (delivery-scoped, derived from stream), `eta_snapshots`, `delivery_events`, `processed_events`¹ |
 | **Notification** | `notifications`, `notification_templates`, `agent_conversations`, `processed_events`¹ |
