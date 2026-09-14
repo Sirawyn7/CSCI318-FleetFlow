@@ -35,4 +35,32 @@ class CourierTest {
         assertThrows(IllegalArgumentException.class, () -> Courier.register(VehicleType.VAN, 20, " "));
         assertThrows(IllegalArgumentException.class, () -> Courier.register(VehicleType.VAN, 20, null));
     }
+
+    @Test
+    void changeAvailabilityToTrueMakesCourierAvailable() {
+        Courier courier = Courier.register(VehicleType.VAN, 20, "ZONE_A");
+
+        courier.changeAvailability(true);
+
+        assertEquals(CourierStatus.AVAILABLE, courier.getStatus());
+    }
+
+    @Test
+    void changeAvailabilityToFalseMakesCourierOffline() {
+        Courier courier = Courier.register(VehicleType.VAN, 20, "ZONE_A");
+        courier.changeAvailability(true);
+
+        courier.changeAvailability(false);
+
+        assertEquals(CourierStatus.OFFLINE, courier.getStatus());
+    }
+
+    @Test
+    void changeAvailabilityIsIdempotent() {
+        Courier courier = Courier.register(VehicleType.VAN, 20, "ZONE_A");
+
+        courier.changeAvailability(false);
+
+        assertEquals(CourierStatus.OFFLINE, courier.getStatus());
+    }
 }

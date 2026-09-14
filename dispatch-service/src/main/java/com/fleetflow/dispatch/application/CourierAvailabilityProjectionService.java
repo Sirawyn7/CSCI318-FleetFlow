@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -35,6 +36,22 @@ public class CourierAvailabilityProjectionService {
             return;
         }
         availabilityRepository.save(snapshot);
+        processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
+    }
+
+    @Transactional
+    public void applyAvailabilityChange(UUID eventId, String eventType, UUID courierId, boolean available, Instant updateAt) {
+        if (processedEventRepository.existsById(eventId)) {
+            return;
+        }
+        Optional<CourierAvailabilityView> existing = availabilityRepository.findById(courierId);
+        if (existing.isEmpty()) {
+            return;
+        }
+
+        CourierAvailabilityView view = existing.get();
+        view.markAvailability(available, updateAt);
+        availabilityRepository.save(view);
         processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
     }
 }
