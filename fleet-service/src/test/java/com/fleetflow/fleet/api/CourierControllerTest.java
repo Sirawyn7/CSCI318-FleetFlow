@@ -1,45 +1,80 @@
 package com.fleetflow.fleet.api;
 
-import com.fleetflow.fleet.application.*;
-import com.fleetflow.fleet.domain.*;
-import org.junit.jupiter.api.BeforeEach;
+import com.fleetflow.fleet.application.ChangeCourierAvailabilityCommand;
+import com.fleetflow.fleet.application.CourierAvailabilityService;
+import com.fleetflow.fleet.application.CourierManagementService;
+import com.fleetflow.fleet.application.CourierNotFoundException;
+import com.fleetflow.fleet.application.CourierRegistrationService;
+import com.fleetflow.fleet.domain.Courier;
+import com.fleetflow.fleet.domain.VehicleType;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.util.NoSuchElementException;
 import java.util.UUID;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@WebMvcTest(CourierController.class)
 class CourierControllerTest {
-    private final CourierManagementService management = mock(CourierManagementService.class);
-    private MockMvc mvc;
+    @Autowired
+    private MockMvc mockMvc;
 
-    @BeforeEach void setup() {
-        mvc = MockMvcBuilders.standaloneSetup(new CourierController(mock(CourierRegistrationService.class), management))
-                .setControllerAdvice(new CourierExceptionHandler()).build();
+    @MockitoBean
+    private CourierRegistrationService registrationService;
+
+    @MockitoBean
+    private CourierAvailabilityService availabilityService;
+
+    @MockitoBean
+    private CourierManagementService managementService;
+
+    @Test
+    void changeAvailabilityReturns404WhenCourierNotFound() throws Exception {
+        UUID unknownId = UUID.randomUUID();
+        when(availabilityService.changeAvailability(any(ChangeCourierAvailabilityCommand.class)))
+                .thenThrow(new NoSuchElementException("courier not found: " + unknownId));
+
+        mockMvc.perform(patch("/api/couriers/{id}/availability", unknownId)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"available\": true}"))
+                .andExpect(status().isNotFound());
     }
 
-    @Test void returnsProfileAndLoad() throws Exception {
+    @Test
+    void returnsProfileAndLoad() throws Exception {
         Courier courier = Courier.register(VehicleType.VAN, 3, "A");
-        when(management.get(courier.getId())).thenReturn(courier);
-        mvc.perform(get("/api/couriers/" + courier.getId()))
+        when(managementService.get(courier.getId())).thenReturn(courier);
+        mockMvc.perform(get("/api/couriers/" + courier.getId()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.activeOrderCount").value(0))
                 .andExpect(jsonPath("$.deactivated").value(false));
     }
 
-    @Test void mapsMissingAndConflictingCouriers() throws Exception {
+    @Test
+    void mapsMissingAndConflictingCouriers() throws Exception {
         UUID id = UUID.randomUUID();
-        when(management.get(id)).thenThrow(new CourierNotFoundException(id));
-        mvc.perform(get("/api/couriers/" + id)).andExpect(status().isNotFound());
-        when(management.deactivate(id)).thenThrow(new IllegalStateException("Active orders"));
-        mvc.perform(post("/api/couriers/" + id + "/deactivate")).andExpect(status().isConflict());
+        when(managementService.get(id)).thenThrow(new CourierNotFoundException(id));
+        mockMvc.perform(get("/api/couriers/" + id)).andExpect(status().isNotFound());
+        when(managementService.deactivate(id)).thenThrow(new IllegalStateException("Active orders"));
+        mockMvc.perform(post("/api/couriers/" + id + "/deactivate")).andExpect(status().isConflict());
     }
 
-    @Test void mapsInvalidProfile() throws Exception {
+    @Test
+    void mapsInvalidProfile() throws Exception {
         UUID id = UUID.randomUUID();
-        when(management.update(eq(id), any())).thenThrow(new IllegalArgumentException("Invalid capacity"));
-        mvc.perform(put("/api/couriers/" + id).contentType("application/json")
+        when(managementService.update(eq(id), any())).thenThrow(new IllegalArgumentException("Invalid capacity"));
+        mockMvc.perform(put("/api/couriers/" + id).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"vehicleType\":\"VAN\",\"capacity\":0,\"operatingZone\":\"A\"}"))
                 .andExpect(status().isBadRequest());
     }

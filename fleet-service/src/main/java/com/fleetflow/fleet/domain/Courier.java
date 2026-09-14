@@ -89,8 +89,9 @@ public class Courier {
 
     /**
      * Status defaults to OFFLINE: FR4 (registration) and FR5 (on/off-shift availability,
-     * publishing CourierAvailabilityChanged) are separate requirements, and that event
-     * isn't consumed yet in this slice — a courier isn't AVAILABLE until it fires.
+     * publishing CourierAvailabilityChanged) are separate requirements, so a newly
+     * registered courier isn't AVAILABLE until {@link #changeAvailability} is called
+     * and that event is published.
      */
     public static Courier register(VehicleType vehicleType, int capacity, String operatingZone) {
         if (vehicleType == null) {
@@ -123,5 +124,9 @@ public class Courier {
 
     public CourierStatus getStatus() {
         return status;
+    }
+
+    public void changeAvailability(boolean available) {
+        this.status = available ? CourierStatus.AVAILABLE : CourierStatus.OFFLINE;
     }
 }

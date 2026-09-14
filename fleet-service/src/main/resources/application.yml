@@ -27,6 +27,8 @@ spring:
         deliveryCompletedConsumer-in-0:
           destination: fleetflow.tracking.delivery-completed
           group: fleet-service
+        courierAvailabilityChanged-out-0:
+          destination: fleetflow.fleet.courier-availability-changed
         courierRegistered-out-0:
           destination: fleetflow.fleet.courier-registered
       kafka:

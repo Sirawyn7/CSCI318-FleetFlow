@@ -70,4 +70,9 @@ public class CourierAvailabilityView {
     public Instant getUpdatedAt() {
         return updatedAt;
     }
+
+    public void markAvailability(boolean available, Instant updatedAt) {
+        this.available = available;
+        this.updatedAt = updatedAt;
+    }
 }
