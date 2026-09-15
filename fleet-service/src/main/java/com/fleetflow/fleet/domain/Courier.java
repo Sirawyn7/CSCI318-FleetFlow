@@ -33,6 +33,13 @@ public class Courier {
 
     private Instant locationUpdatedAt;
 
+    private boolean deactivated;
+
+    private int activeOrderCount;
+
+    @jakarta.persistence.Version
+    private long version;
+
     protected Courier() {
         // JPA
     }
@@ -103,7 +110,6 @@ public class Courier {
      * only the latest reading is kept (locked decision, see CourierLocationUpdated's
      * Javadoc), never a position history.
      */
-
     public void updateLocation(GeoCoordinate location, Instant capturedAt) {
         if (location == null) {
             throw new IllegalArgumentException("location is required");
@@ -114,4 +120,5 @@ public class Courier {
         this.currentLocation = location;
         this.locationUpdatedAt = capturedAt;
     }
-}
+
+    public void updateProfile(VehicleType vehicleType, int capacity, String

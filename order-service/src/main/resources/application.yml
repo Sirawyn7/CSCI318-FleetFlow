@@ -10,3 +10,20 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
+  cloud:
+    stream:
+      bindings:
+        orderPlaced-out-0:
+          destination: fleetflow.order.order-placed
+        orderCancelled-out-0:
+          destination: fleetflow.order.order-cancelled
+      kafka:
+        binder:
+          brokers: ${KAFKA_BROKERS:localhost:9092}
+        bindings:
+          orderPlaced-out-0:
+            producer:
+              sync: true
+          orderCancelled-out-0:
+            producer:
+              sync: true

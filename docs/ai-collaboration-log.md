@@ -84,3 +84,23 @@ Studio API.
 **Rationale:** See `docs/decisions/0005-llm-model-selection.md` for full reasoning.
 
 ---
+
+## 2026-09-08 — UC1 Manage Delivery Order implementation (Tenzin)
+**Prompt/context:** Asked the assistant for help implementing UC1 – Manage Delivery Order in the Order service, covering order creation, querying an order, and cancelling an order. I also needed help understanding how the existing domain, application, API, and infrastructure layers should be used.
+**Proposed by agent:** The assistant proposed an Order domain model using `Order`, `Address`, `OrderStatus`, and `OrderRepository`; an application service and `OrderEventPort`; JPA persistence classes in infrastructure; a REST `OrderController`; and an `OrderEventPublisher` for the existing `OrderPlaced` and `OrderCancelled` contracts. The assistant also helped diagnose compilation and Spring Boot startup errors while implementing these files.
+**Decision:** Modified — I kept the original structure but requested implementation fixes and added new tests.
+**Rationale:** I kept the layered structure but requested fixes to follow project conventions, protect data integrity, and ensure order creation and cancellation work correctly.
+
+---
+
+## 2026-09-12 — Fleet load event ordering for FR4/FR6 (Tenzin)
+**Prompt/context:** Asked the assistant to implement UC2's FR4 and FR6, leaving
+FR5 to my teammate.
+**Proposed by agent:** Keep the active-order count on Courier and add an order
+ledger to handle duplicate and out-of-order events; see
+`docs/decisions/0008-fleet-load-event-ordering.md`.
+**Decision:** Accepted the proposal to keep the active-order count on Courier and add a `courier_order_load` ledger.
+**Rationale:** See `docs/decisions/0008-fleet-load-event-ordering.md` for the rationale.
+**Prompt record:** `docs/prompts/0007-fleet-load-event-ordering.md`.
+
+---
