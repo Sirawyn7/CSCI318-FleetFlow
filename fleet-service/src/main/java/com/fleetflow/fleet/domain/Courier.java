@@ -108,7 +108,7 @@ public class Courier {
         if (location == null) {
             throw new IllegalArgumentException("location is required");
         }
-        if  (capturedAt == null) {
+        if (capturedAt == null) {
             throw new IllegalArgumentException("capturedAt is required");
         }
         this.currentLocation = location;

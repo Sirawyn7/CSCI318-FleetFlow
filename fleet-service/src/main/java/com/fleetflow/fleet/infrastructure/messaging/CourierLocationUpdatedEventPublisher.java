@@ -4,7 +4,6 @@ import com.fleetflow.contracts.EventEnvelope;
 import com.fleetflow.contracts.common.GeoPoint;
 import com.fleetflow.contracts.fleet.CourierLocationUpdated;
 import com.fleetflow.fleet.domain.Courier;
-import jdk.jfr.Event;
 import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.stereotype.Component;
 

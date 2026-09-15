@@ -36,8 +36,8 @@ public class GpsPingScheduler {
     public void postPing() {
         // Small random walk each tick so successive pings look like real movement,
         // rather than the same static point repeated forever.
-        latitude = (random.nextDouble() - 0.5) * 0.001;
-        longitude = (random.nextDouble() - 0.5) * 0.001;
+        latitude += (random.nextDouble() - 0.5) * 0.001;
+        longitude += (random.nextDouble() - 0.5) * 0.001;
 
         restClient.post()
                 .uri("/api/couriers/{courierId}/location", courierId)
