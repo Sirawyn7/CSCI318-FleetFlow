@@ -13,6 +13,7 @@ public final class Topics {
     public static final String COURIER_REGISTERED = "fleetflow.fleet.courier-registered";
     public static final String COURIER_AVAILABILITY_CHANGED = "fleetflow.fleet.courier-availability-changed";
     public static final String COURIER_LOCATION_UPDATED = "fleetflow.fleet.courier-location-updated";
+    public static final String COURIER_LOAD_CHANGED = "fleetflow.fleet.courier-load-changed";
 
     public static final String ORDER_ASSIGNED = "fleetflow.dispatch.order-assigned";
     public static final String ORDER_REASSIGNED = "fleetflow.dispatch.order-reassigned";

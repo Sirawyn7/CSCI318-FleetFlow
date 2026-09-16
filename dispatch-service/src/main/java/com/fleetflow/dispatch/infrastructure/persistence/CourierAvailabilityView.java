@@ -33,6 +33,15 @@ public class CourierAvailabilityView {
 
     private Instant updatedAt;
 
+    // Nullable, unlike OpenOrderView's pickup/dropoff coordinates: an order's
+    // coordinates always exist by construction, but a courier's location is
+    // genuinely absent until its first CourierLocationUpdated ping arrives.
+    private Double latitude;
+
+    private Double longitude;
+
+    private Instant locationUpdatedAt;
+
     protected CourierAvailabilityView() {
         // JPA
     }
@@ -74,5 +83,23 @@ public class CourierAvailabilityView {
     public void markAvailability(boolean available, Instant updatedAt) {
         this.available = available;
         this.updatedAt = updatedAt;
+    }
+
+    public Double getLatitude() {
+        return latitude;
+    }
+
+    public Double getLongitude() {
+        return longitude;
+    }
+
+    public Instant getLocationUpdatedAt() {
+        return locationUpdatedAt;
+    }
+
+    public void updateLocation(double latitude, double longitude, Instant updatedAt) {
+        this.latitude = latitude;
+        this.longitude = longitude;
+        this.locationUpdatedAt = updatedAt;
     }
 }

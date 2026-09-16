@@ -54,4 +54,24 @@ public class CourierAvailabilityProjectionService {
         availabilityRepository.save(view);
         processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
     }
+
+    @Transactional
+    public void applyLocationUpdate(UUID eventId, String eventType, UUID courierId, double latitude,
+                                     double longitude, Instant capturedAt) {
+        if (processedEventRepository.existsById(eventId)) {
+            return;
+        }
+        Optional<CourierAvailabilityView> existing = availabilityRepository.findById(courierId);
+        if (existing.isEmpty()) {
+            // CourierLocationUpdated arrived before CourierRegistered -- do not mark
+            // processed, so redelivery retries once the courier row exists (same
+            // out-of-order tolerance as applyAvailabilityChange above).
+            return;
+        }
+
+        CourierAvailabilityView view = existing.get();
+        view.updateLocation(latitude, longitude, capturedAt);
+        availabilityRepository.save(view);
+        processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
+    }
 }
