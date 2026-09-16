@@ -2,9 +2,11 @@ package com.fleetflow.fleet.api;
 
 import com.fleetflow.fleet.application.ChangeCourierAvailabilityCommand;
 import com.fleetflow.fleet.application.CourierAvailabilityService;
+import com.fleetflow.fleet.application.CourierLocationService;
 import com.fleetflow.fleet.application.CourierManagementService;
 import com.fleetflow.fleet.application.CourierNotFoundException;
 import com.fleetflow.fleet.application.CourierRegistrationService;
+import com.fleetflow.fleet.application.IngestCourierLocationCommand;
 import com.fleetflow.fleet.domain.Courier;
 import com.fleetflow.fleet.domain.VehicleType;
 import org.junit.jupiter.api.Test;
@@ -29,6 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(CourierController.class)
 class CourierControllerTest {
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -37,6 +40,9 @@ class CourierControllerTest {
 
     @MockitoBean
     private CourierAvailabilityService availabilityService;
+
+    @MockitoBean
+    private CourierLocationService locationService;
 
     @MockitoBean
     private CourierManagementService managementService;
@@ -48,7 +54,20 @@ class CourierControllerTest {
                 .thenThrow(new NoSuchElementException("courier not found: " + unknownId));
 
         mockMvc.perform(patch("/api/couriers/{id}/availability", unknownId)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"available\": true}"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"available\": true}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void ingestLocationReturns404WhenCourierNotFound() throws Exception {
+        UUID unknownId = UUID.randomUUID();
+        when(locationService.ingestLocation(any(IngestCourierLocationCommand.class)))
+                .thenThrow(new NoSuchElementException("courier not found: " + unknownId));
+
+        mockMvc.perform(post("/api/couriers/{id}/location", unknownId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latitude\": -33.87, \"longitude\": 151.21}"))
                 .andExpect(status().isNotFound());
     }
 

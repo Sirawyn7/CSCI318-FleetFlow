@@ -6,3 +6,13 @@ spring:
     web-application-type: none
   application:
     name: gps-simulator
+
+
+# FR10 config: courier-id must be a UUID already registered via
+# POST /api/couriers on fleet-service (see FR4) -- the simulator doesn't register a
+# courier itself, it only reports location for one that already exists. Replace the
+# placeholder below with a real registered courier's ID before running.
+simulator:
+  fleet-base-url: http://localhost:8082
+  courier-id: 00000000-0000-0000-0000-000000000000
+  ping-interval-ms: 5000

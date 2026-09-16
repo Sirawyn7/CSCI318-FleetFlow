@@ -1,11 +1,8 @@
 package com.fleetflow.fleet.domain;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -31,49 +28,17 @@ public class Courier {
     @Enumerated(EnumType.STRING)
     private CourierStatus status;
 
+    @Embedded
+    private GeoCoordinate currentLocation;
+
+    private Instant locationUpdatedAt;
+
     private boolean deactivated;
 
     private int activeOrderCount;
 
     @jakarta.persistence.Version
     private long version;
-
-    public void updateProfile(VehicleType vehicleType, int capacity, String operatingZone) {
-        if (vehicleType == null || capacity <= 0 || operatingZone == null || operatingZone.isBlank()) {
-            throw new IllegalArgumentException("Vehicle type, positive capacity and operating zone are required");
-        }
-        if (capacity < activeOrderCount) {
-            throw new IllegalStateException("Capacity cannot be below current load");
-        }
-        this.vehicleType = vehicleType;
-        this.capacity = capacity;
-        this.operatingZone = operatingZone;
-    }
-
-    public void deactivate() {
-        if (activeOrderCount > 0) {
-            throw new IllegalStateException("A courier with active orders cannot be deactivated");
-        }
-        deactivated = true;
-    }
-
-    public void assignOrder() {
-        if (deactivated || activeOrderCount >= capacity) {
-            throw new IllegalStateException("Courier is deactivated or at capacity");
-        }
-        activeOrderCount++;
-    }
-
-    public void completeOrder() {
-        if (activeOrderCount == 0) {
-            throw new IllegalStateException("Courier has no active orders");
-        }
-        activeOrderCount--;
-    }
-
-    public boolean isDeactivated() { return deactivated; }
-
-    public int getActiveOrderCount() { return activeOrderCount; }
 
     protected Courier() {
         // JPA
@@ -128,5 +93,72 @@ public class Courier {
 
     public void changeAvailability(boolean available) {
         this.status = available ? CourierStatus.AVAILABLE : CourierStatus.OFFLINE;
+    }
+
+    public GeoCoordinate getCurrentLocation() {
+        return currentLocation;
+    }
+
+    public Instant getLocationUpdatedAt() {
+        return locationUpdatedAt;
+    }
+
+    /**
+     * FR10: applies a validated location reading from a GPS ping. Coordinate-range
+     * validation lives in GeoCoordinate's own compact constructor ("Fleet validates" in
+     * the FR text); this method's only job is deciding what changes on the aggregate --
+     * only the latest reading is kept (locked decision, see CourierLocationUpdated's
+     * Javadoc), never a position history.
+     */
+    public void updateLocation(GeoCoordinate location, Instant capturedAt) {
+        if (location == null) {
+            throw new IllegalArgumentException("location is required");
+        }
+        if (capturedAt == null) {
+            throw new IllegalArgumentException("capturedAt is required");
+        }
+        this.currentLocation = location;
+        this.locationUpdatedAt = capturedAt;
+    }
+
+    public void updateProfile(VehicleType vehicleType, int capacity, String operatingZone) {
+        if (vehicleType == null || capacity <= 0 || operatingZone == null || operatingZone.isBlank()) {
+            throw new IllegalArgumentException("Vehicle type, positive capacity and operating zone are required");
+        }
+        if (capacity < activeOrderCount) {
+            throw new IllegalStateException("Capacity cannot be below current load");
+        }
+        this.vehicleType = vehicleType;
+        this.capacity = capacity;
+        this.operatingZone = operatingZone;
+    }
+
+    public void deactivate() {
+        if (activeOrderCount > 0) {
+            throw new IllegalStateException("A courier with active orders cannot be deactivated");
+        }
+        deactivated = true;
+    }
+
+    public void assignOrder() {
+        if (deactivated || activeOrderCount >= capacity) {
+            throw new IllegalStateException("Courier is deactivated or at capacity");
+        }
+        activeOrderCount++;
+    }
+
+    public void completeOrder() {
+        if (activeOrderCount == 0) {
+            throw new IllegalStateException("Courier has no active orders");
+        }
+        activeOrderCount--;
+    }
+
+    public boolean isDeactivated() {
+        return deactivated;
+    }
+
+    public int getActiveOrderCount() {
+        return activeOrderCount;
     }
 }
