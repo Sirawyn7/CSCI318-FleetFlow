@@ -64,7 +64,7 @@ Every event is published by the service that owns the aggregate it belongs to.
 | Owner | Events |
 |---|---|
 | Order | `OrderPlaced`, `OrderCancelled` |
-| Fleet | `CourierRegistered`, `CourierAvailabilityChanged`, `CourierLocationUpdated` |
+| Fleet | `CourierRegistered`, `CourierAvailabilityChanged`, `CourierLocationUpdated`, `CourierLoadChanged` |
 | Dispatch | `OrderAssigned`, `OrderReassigned`, `AssignmentFailed` |
 | Tracking | `DeliveryStarted`, `DeliveryEtaUpdated`, `DeliveryNearDestination`, `DeliveryArrived`, `DeliveryAtRisk`, `DeliveryCompleted` |
 | Notification | `NotificationSent` |

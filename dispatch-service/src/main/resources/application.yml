@@ -16,7 +16,7 @@ spring:
   cloud:
     function:
       # Registers the functional consumer bean(s) below with Spring Cloud Stream.
-    definition: courierRegisteredConsumer;courierAvailabilityChangedConsumer;orderPlacedConsumer;orderCancelledConsumer
+    definition: courierRegisteredConsumer;courierAvailabilityChangedConsumer;courierLocationUpdatedConsumer;orderPlacedConsumer;orderCancelledConsumer
     stream:
       # Semicolon-separated, not comma -- Spring Cloud Function only splits standalone
       # (non-composed) function definitions on ";"; a comma list here silently gets read
@@ -31,12 +31,26 @@ spring:
         courierAvailabilityChangedConsumer-in-0:
           destination: fleetflow.fleet.courier-availability-changed
           group: dispatch-service
+        courierLocationUpdatedConsumer-in-0:
+          destination: fleetflow.fleet.courier-location-updated
+          group: dispatch-service
         orderPlacedConsumer-in-0:
           destination: fleetflow.order.order-placed
           group: dispatch-service
         orderCancelledConsumer-in-0:
           destination: fleetflow.order.order-cancelled
           group: dispatch-service
+        orderAssigned-out-0:
+          destination: fleetflow.dispatch.order-assigned
+        assignmentFailed-out-0:
+          destination: fleetflow.dispatch.assignment-failed
       kafka:
         binder:
           brokers: ${KAFKA_BROKERS:localhost:9092}
+        bindings:
+          orderAssigned-out-0:
+            producer:
+              sync: true
+          assignmentFailed-out-0:
+            producer:
+              sync: true
