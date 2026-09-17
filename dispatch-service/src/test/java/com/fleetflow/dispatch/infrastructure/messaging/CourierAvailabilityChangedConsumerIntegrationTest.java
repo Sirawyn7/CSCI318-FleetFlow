@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
 class CourierAvailabilityChangedConsumerIntegrationTest {
     @Container
@@ -63,7 +64,7 @@ class CourierAvailabilityChangedConsumerIntegrationTest {
         streamBridge.send(Topics.COURIER_AVAILABILITY_CHANGED,
                 new CourierAvailabilityChanged(availabilityEnvelope, courierId, true));
 
-        awaitProcessedEventCount(2);
+        awaitProcessedEvent(availabilityEnvelope.eventId());
 
         CourierAvailabilityView view = availabilityRepository.findById(courierId).orElseThrow();
         assertTrue(view.isAvailable());
@@ -123,14 +124,14 @@ class CourierAvailabilityChangedConsumerIntegrationTest {
         throw new AssertionError("Timed out waiting for courier_availability_view row to appear");
     }
 
-    private void awaitProcessedEventCount(long expected) throws InterruptedException {
+    private void awaitProcessedEvent(UUID eventId) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 15000;
         while (System.currentTimeMillis() < deadline) {
-            if (processedEventRepository.count() == expected) {
+            if (processedEventRepository.existsById(eventId)) {
                 return;
             }
             Thread.sleep(200);
         }
-        throw new AssertionError("Timed out waiting for processed_events row count to reach " + expected);
+        throw new AssertionError("Timed out waiting for processed event " + eventId);
     }
 }

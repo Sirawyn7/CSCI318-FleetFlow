@@ -16,7 +16,7 @@ spring:
   cloud:
     function:
       # Registers the functional consumer bean(s) below with Spring Cloud Stream.
-    definition: courierRegisteredConsumer;courierAvailabilityChangedConsumer;courierLocationUpdatedConsumer;orderPlacedConsumer;orderCancelledConsumer
+      definition: courierRegisteredConsumer;courierAvailabilityChangedConsumer;courierLocationUpdatedConsumer;courierLoadChangedConsumer;orderPlacedConsumer;orderCancelledConsumer
     stream:
       # Semicolon-separated, not comma -- Spring Cloud Function only splits standalone
       # (non-composed) function definitions on ";"; a comma list here silently gets read
@@ -25,6 +25,9 @@ spring:
       # so every dispatch-service instance shares one logical subscription rather than
       # each receiving its own copy of every event.
       bindings:
+        courierLoadChangedConsumer-in-0:
+          destination: fleetflow.fleet.courier-load-changed
+          group: dispatch-service
         courierRegisteredConsumer-in-0:
           destination: fleetflow.fleet.courier-registered
           group: dispatch-service
@@ -48,9 +51,38 @@ spring:
         binder:
           brokers: ${KAFKA_BROKERS:localhost:9092}
         bindings:
+          courierAvailabilityChangedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          courierLocationUpdatedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          orderPlacedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          courierLoadChangedConsumer-in-0:
+            consumer:
+              enableDlq: true
           orderAssigned-out-0:
             producer:
               sync: true
           assignmentFailed-out-0:
             producer:
               sync: true
+
+dispatch:
+  agent:
+    api-key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_MODEL:gemini-2.0-flash}
+  # Demonstration boundaries only. Replace with your fleet's actual service areas.
+  zones:
+    "[ZONE_A]":
+      min-latitude: -34.7
+      max-latitude: -34.0
+      min-longitude: 150.5
+      max-longitude: 151.0
+    "[ZONE_B]":
+      min-latitude: -34.0
+      max-latitude: -33.5
+      min-longitude: 150.5
+      max-longitude: 151.4

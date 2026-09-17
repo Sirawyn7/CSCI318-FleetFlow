@@ -35,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * dispatch-service (same technique as CourierRegisteredConsumerIntegrationTest).
  */
 @SpringBootTest
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
 class OpenOrdersConsumerIntegrationTest {
 

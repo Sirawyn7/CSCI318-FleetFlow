@@ -18,6 +18,16 @@
 
     <dependencies>
         <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+            <version>1.20.0</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-google-ai-gemini</artifactId>
+            <version>1.20.0</version>
+        </dependency>
+        <dependency>
             <groupId>com.fleetflow</groupId>
             <artifactId>fleetflow-contracts</artifactId>
             <version>${project.version}</version>

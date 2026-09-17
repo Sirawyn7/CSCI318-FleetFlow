@@ -7,9 +7,8 @@ import java.util.UUID;
  * DispatchAssignmentService needs. Built by the application layer from
  * courier_availability_view rows (infrastructure/persistence), never leaked in as
  * the JPA entity itself, since domain/ must not depend on infrastructure types.
- * No operatingZone field: FR7 does not filter on zone in this slice, since
- * OrderPlaced carries no zone data to match against (see FR7's plan/ADR context) --
- * not carried here speculatively.
+ * Zone eligibility is checked by the application before ranking. Capacity is the
+ * remaining number of slots after reported load and local pending reservations.
  */
 public record CourierCandidate(UUID courierId, int capacity, GeoCoordinate location) {
 }

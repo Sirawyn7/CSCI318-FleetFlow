@@ -6,9 +6,8 @@ import java.util.Optional;
 
 /**
  * Domain Service (docs/AGENTS.md §9.3: "logic spanning multiple aggregates") --
- * FR7's deterministic courier selection by proximity and capacity. Zone is
- * deliberately not a selection criterion in this slice: OrderPlaced carries no zone
- * data to match a courier's operatingZone against (see the FR7 plan's Context).
+ * FR7's deterministic courier selection by proximity and remaining capacity.
+ * The application filters on availability, known location and configured zone first.
  * Plain Java, no Spring/JPA -- the application layer holds one instance and passes
  * in already-mapped domain types.
  */
@@ -22,9 +21,7 @@ public class DispatchAssignmentService {
      */
     public Optional<CourierCandidate> select(GeoCoordinate pickup, List<CourierCandidate> candidates) {
         return candidates.stream()
-                // Defensive, not load-bearing: Courier.register in fleet-service already
-                // refuses a non-positive capacity, so a candidate reaching here with
-                // capacity <= 0 should be structurally impossible.
+                // Defensive guard: capacity here means currently unreserved slots.
                 .filter(candidate -> candidate.capacity() > 0)
                 .min(Comparator
                         .comparingDouble((CourierCandidate candidate) -> pickup.distanceKmTo(candidate.location()))

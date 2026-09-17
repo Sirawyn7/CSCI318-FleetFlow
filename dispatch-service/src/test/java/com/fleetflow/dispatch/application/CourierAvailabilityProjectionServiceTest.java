@@ -27,14 +27,30 @@ class CourierAvailabilityProjectionServiceTest {
     private ProcessedEventRepository processedEventRepository;
 
     @Test
+    void firstAvailabilityCanPredateRegistrationButOlderShiftUpdatesCannotOverwriteIt() {
+        var service = new CourierAvailabilityProjectionService(availabilityRepository, processedEventRepository);
+        UUID courierId = UUID.randomUUID();
+        Instant registrationTime = Instant.now();
+        var view = new CourierAvailabilityView(courierId, "VAN", 3, "ZONE_A", false, registrationTime);
+        when(availabilityRepository.findForUpdate(courierId)).thenReturn(Optional.of(view));
+        service.applyAvailabilityChange(UUID.randomUUID(), "CourierAvailabilityChanged", courierId, true,
+                registrationTime.minusSeconds(5));
+        org.junit.jupiter.api.Assertions.assertTrue(view.isAvailable());
+        service.applyAvailabilityChange(UUID.randomUUID(), "CourierAvailabilityChanged", courierId, false,
+                registrationTime.minusSeconds(10));
+        org.junit.jupiter.api.Assertions.assertTrue(view.isAvailable());
+    }
+
+    @Test
     void applyAvailabilityChangeDoesNotRecordProcessedEventWhenViewIsMissing() {
         CourierAvailabilityProjectionService service = new CourierAvailabilityProjectionService(availabilityRepository, processedEventRepository);
         UUID eventId = UUID.randomUUID();
         UUID courierId = UUID.randomUUID();
         when(processedEventRepository.existsById(eventId)).thenReturn(false);
-        when(availabilityRepository.findById(courierId)).thenReturn(Optional.empty());
+        when(availabilityRepository.findForUpdate(courierId)).thenReturn(Optional.empty());
 
-        service.applyAvailabilityChange(eventId, "CourierAvailabilityChanged", courierId, true, Instant.now());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> service.applyAvailabilityChange(eventId, "CourierAvailabilityChanged", courierId, true, Instant.now()));
 
         verify(processedEventRepository, never()).save(any(ProcessedEvent.class));
         verify(availabilityRepository, never()).save(any(CourierAvailabilityView.class));
@@ -47,7 +63,7 @@ class CourierAvailabilityProjectionServiceTest {
         UUID courierId = UUID.randomUUID();
         CourierAvailabilityView view = new CourierAvailabilityView(courierId, "VAN", 20, "ZONE_A", false, Instant.now());
         when(processedEventRepository.existsById(eventId)).thenReturn(false);
-        when(availabilityRepository.findById(courierId)).thenReturn(Optional.of(view));
+        when(availabilityRepository.findForUpdate(courierId)).thenReturn(Optional.of(view));
 
         service.applyAvailabilityChange(eventId, "CourierAvailabilityChanged", courierId, true, Instant.now());
 

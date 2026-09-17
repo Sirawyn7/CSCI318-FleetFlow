@@ -25,6 +25,7 @@ public class AssignmentDecision {
     @Id
     private UUID id;
 
+    @jakarta.persistence.Column(unique = true, nullable = false)
     private UUID orderId;
 
     private UUID courierId;
@@ -35,6 +36,7 @@ public class AssignmentDecision {
     @Enumerated(EnumType.STRING)
     private DecisionOutcome outcome;
 
+    @jakarta.persistence.Column(length = 4000)
     private String reason;
 
     private Instant decidedAt;

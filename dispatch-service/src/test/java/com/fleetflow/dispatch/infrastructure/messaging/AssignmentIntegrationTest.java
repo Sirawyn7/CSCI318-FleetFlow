@@ -12,6 +12,15 @@ import com.fleetflow.dispatch.infrastructure.persistence.AssignmentDecisionRepos
 import com.fleetflow.dispatch.infrastructure.persistence.AssignmentRepository;
 import com.fleetflow.dispatch.infrastructure.persistence.DecisionOutcome;
 import com.fleetflow.dispatch.infrastructure.persistence.OpenOrderViewRepository;
+import com.fleetflow.dispatch.infrastructure.persistence.CourierAvailabilityViewRepository;
+import com.fleetflow.dispatch.infrastructure.persistence.ProcessedEventRepository;
+import com.fleetflow.dispatch.infrastructure.persistence.AssignmentPath;
+import com.fleetflow.dispatch.application.DispatchAgent;
+import com.fleetflow.dispatch.application.AgentRecommendation;
+import com.fleetflow.contracts.fleet.CourierLoadChanged;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -25,6 +34,11 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.Map;
+import java.util.List;
+import java.time.Duration;
+import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -38,8 +52,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * OpenOrdersConsumerIntegrationTest.
  */
 @SpringBootTest
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
 class AssignmentIntegrationTest {
+
+    @MockitoBean DispatchAgent agent;
+    @Autowired CourierAvailabilityViewRepository couriers;
+    @Autowired ProcessedEventRepository processed;
+
+    @BeforeEach
+    void isolateTests() {
+        assignmentRepository.deleteAll(); assignmentDecisionRepository.deleteAll();
+        openOrderViewRepository.deleteAll(); couriers.deleteAll(); processed.deleteAll();
+        when(agent.recommend(any())).thenThrow(new IllegalStateException("Test provider unavailable"));
+    }
 
     @Container
     static final KafkaContainer KAFKA =
@@ -80,6 +106,8 @@ class AssignmentIntegrationTest {
         assertTrue(assignmentRepository.findByOrderId(orderId).isPresent());
         assertEquals(courierId, assignmentRepository.findByOrderId(orderId).orElseThrow().getCourierId());
         assertFalse(openOrderViewRepository.existsById(orderId));
+        assertEquals(AssignmentPath.RULE_BASED, decision.getPathUsed());
+        assertPublished(Topics.ORDER_ASSIGNED, orderId);
     }
 
     @Test
@@ -95,6 +123,30 @@ class AssignmentIntegrationTest {
 
         assertTrue(assignmentRepository.findByOrderId(orderId).isEmpty());
         assertTrue(openOrderViewRepository.existsById(orderId));
+        assertPublished(Topics.ASSIGNMENT_FAILED, orderId);
+    }
+
+    @Test
+    void agentAssignmentAndLoadAcknowledgementTravelThroughKafka() throws InterruptedException {
+        UUID courierId = UUID.randomUUID();
+        registerAvailableCourierAt(courierId, -34.41, 150.81);
+        doAnswer(invocation -> {
+            var context = invocation.getArgument(0, com.fleetflow.dispatch.application.DispatchContext.class);
+            return new AgentRecommendation(context.targetOrderId(), courierId, "Nearby with five free slots");
+        }).when(agent).recommend(any());
+        UUID orderId = UUID.randomUUID();
+        publishOrderPlaced(orderId, -34.4, 150.8);
+        awaitDecisionPresent(orderId);
+        var decision = assignmentDecisionRepository.findByOrderId(orderId).orElseThrow();
+        assertEquals(AssignmentPath.AGENT, decision.getPathUsed());
+        assertEquals("Nearby with five free slots", decision.getReason());
+        assertPublished(Topics.ORDER_ASSIGNED, orderId);
+
+        var envelope = new EventEnvelope(UUID.randomUUID(), "CourierLoadChanged", Instant.now(), orderId.toString());
+        streamBridge.send(Topics.COURIER_LOAD_CHANGED, new CourierLoadChanged(envelope, courierId, 1, 5, 1, orderId));
+        await(() -> processed.existsById(envelope.eventId()));
+        assertEquals(1, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
+        assertEquals(0, assignmentRepository.countByCourierIdAndLoadAcknowledgedFalse(courierId));
     }
 
     @Test
@@ -132,6 +184,7 @@ class AssignmentIntegrationTest {
                 UUID.randomUUID(), "CourierRegistered", Instant.now(), UUID.randomUUID().toString());
         streamBridge.send(Topics.COURIER_REGISTERED,
                 new CourierRegistered(registeredEnvelope, courierId, "VAN", 5, "ZONE_A"));
+        await(() -> couriers.existsById(courierId));
 
         EventEnvelope availabilityEnvelope = new EventEnvelope(
                 UUID.randomUUID(), "CourierAvailabilityChanged", Instant.now(), UUID.randomUUID().toString());
@@ -143,10 +196,8 @@ class AssignmentIntegrationTest {
         streamBridge.send(Topics.COURIER_LOCATION_UPDATED,
                 new CourierLocationUpdated(locationEnvelope, courierId, new GeoPoint(latitude, longitude), Instant.now()));
 
-        // Give the three setup events time to land before the test publishes
-        // OrderPlaced -- the assignment attempt needs the courier row fully
-        // populated (registered + available + located) or it will (correctly) fail.
-        Thread.sleep(2000);
+        await(() -> couriers.findById(courierId)
+                .map(c -> c.isAvailable() && c.getLatitude() != null).orElse(false));
     }
 
     private void publishOrderPlaced(UUID orderId, double pickupLatitude, double pickupLongitude) {
@@ -168,5 +219,31 @@ class AssignmentIntegrationTest {
             Thread.sleep(200);
         }
         throw new AssertionError("Timed out waiting for an assignment_decisions row for order " + orderId);
+    }
+
+    private void await(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (condition.getAsBoolean()) return;
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Timed out waiting for Kafka projection");
+    }
+
+    private void assertPublished(String topic, UUID orderId) {
+        Map<String, Object> properties = Map.of(
+                "bootstrap.servers", KAFKA.getBootstrapServers(), "group.id", "verify-" + UUID.randomUUID(),
+                "auto.offset.reset", "earliest", "key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer",
+                "value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        try (var consumer = new KafkaConsumer<String, String>(properties)) {
+            consumer.subscribe(List.of(topic));
+            long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+            while (System.nanoTime() < deadline) {
+                for (var record : consumer.poll(Duration.ofMillis(200))) {
+                    if (record.value().contains(orderId.toString())) return;
+                }
+            }
+        }
+        throw new AssertionError("No event on " + topic + " for " + orderId);
     }
 }

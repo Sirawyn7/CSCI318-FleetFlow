@@ -11,10 +11,9 @@ import java.util.UUID;
  * Aggregate root (FR7). Identity persists through change, so this is an Entity, not
  * a Value Object, per docs/AGENTS.md §9.3. Same shape as fleet-service's Courier:
  * invariants enforced in the {@link #create} factory so the aggregate can never be
- * constructed in an invalid state, regardless of caller. Never mutated after
- * creation -- FR7 makes exactly one attempt per order (see the FR7 plan's Context on
- * why a failed attempt is terminal for this slice) -- so there are no business
- * methods beyond the factory and getters.
+ * constructed in an invalid state, regardless of caller. UC3 makes one decision
+ * per order. Fleet acknowledgement releases the assignment's pending capacity
+ * reservation without changing its courier or identity.
  */
 @Entity
 @Table(name = "assignments")
@@ -23,11 +22,17 @@ public class Assignment {
     @Id
     private UUID id;
 
+    @jakarta.persistence.Column(unique = true, nullable = false)
     private UUID orderId;
 
     private UUID courierId;
 
     private Instant assignedAt;
+
+    private boolean loadAcknowledged;
+
+    public boolean isLoadAcknowledged() { return loadAcknowledged; }
+    public void acknowledgeLoad() { loadAcknowledged = true; }
 
     protected Assignment() {
         // JPA

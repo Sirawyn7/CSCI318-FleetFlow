@@ -35,7 +35,11 @@ public class CourierAvailabilityProjectionService {
             // Already applied -- redelivery of the same event, idempotent no-op.
             return;
         }
-        availabilityRepository.save(snapshot);
+        // Registration is not a profile update. A redelivery with a new envelope
+        // must not reset an existing courier's load, location or availability.
+        if (availabilityRepository.findById(snapshot.getCourierId()).isEmpty()) {
+            availabilityRepository.save(snapshot);
+        }
         processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
     }
 
@@ -44,13 +48,15 @@ public class CourierAvailabilityProjectionService {
         if (processedEventRepository.existsById(eventId)) {
             return;
         }
-        Optional<CourierAvailabilityView> existing = availabilityRepository.findById(courierId);
+        Optional<CourierAvailabilityView> existing = availabilityRepository.findForUpdate(courierId);
         if (existing.isEmpty()) {
-            return;
+            throw new IllegalStateException("Availability received before courier registration");
         }
 
         CourierAvailabilityView view = existing.get();
-        view.markAvailability(available, updateAt);
+        if (view.getAvailabilityUpdatedAt() == null || !updateAt.isBefore(view.getAvailabilityUpdatedAt())) {
+            view.markAvailability(available, updateAt);
+        }
         availabilityRepository.save(view);
         processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
     }
@@ -61,16 +67,17 @@ public class CourierAvailabilityProjectionService {
         if (processedEventRepository.existsById(eventId)) {
             return;
         }
-        Optional<CourierAvailabilityView> existing = availabilityRepository.findById(courierId);
+        Optional<CourierAvailabilityView> existing = availabilityRepository.findForUpdate(courierId);
         if (existing.isEmpty()) {
-            // CourierLocationUpdated arrived before CourierRegistered -- do not mark
-            // processed, so redelivery retries once the courier row exists (same
-            // out-of-order tolerance as applyAvailabilityChange above).
-            return;
+            // Throw so the binder actually retries; returning would acknowledge and
+            // permanently lose the update despite not recording it as processed.
+            throw new IllegalStateException("Location received before courier registration");
         }
 
         CourierAvailabilityView view = existing.get();
-        view.updateLocation(latitude, longitude, capturedAt);
+        if (view.getLocationUpdatedAt() == null || !capturedAt.isBefore(view.getLocationUpdatedAt())) {
+            view.updateLocation(latitude, longitude, capturedAt);
+        }
         availabilityRepository.save(view);
         processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
     }
