@@ -28,8 +28,9 @@ public class OperatingZones {
             }
         }
         public boolean contains(GeoCoordinate point) {
-            return point.latitude() >= minLatitude && point.latitude() <= maxLatitude
-                    && point.longitude() >= minLongitude && point.longitude() <= maxLongitude;
+            // Half-open intervals give adjacent rectangles one owner for their shared edge.
+            return point.latitude() >= minLatitude && point.latitude() < maxLatitude
+                    && point.longitude() >= minLongitude && point.longitude() < maxLongitude;
         }
     }
 }

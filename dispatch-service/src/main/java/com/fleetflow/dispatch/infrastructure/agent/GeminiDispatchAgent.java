@@ -19,6 +19,7 @@ public class GeminiDispatchAgent implements DispatchAgent {
     public GeminiDispatchAgent(@Value("${dispatch.agent.api-key:}") String apiKey,
                                @Value("${dispatch.agent.model:gemini-2.0-flash}") String modelName) {
         model = apiKey.isBlank() ? null : GoogleAiGeminiChatModel.builder()
+                .httpClientBuilder(new DeadlineHttpClient.Builder())
                 .apiKey(apiKey).modelName(modelName).timeout(Duration.ofSeconds(5))
                 .maxRetries(0).maxOutputTokens(2048).build();
     }

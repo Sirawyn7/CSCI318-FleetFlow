@@ -65,6 +65,7 @@ class CourierAvailabilityChangedConsumerIntegrationTest {
                 new CourierAvailabilityChanged(availabilityEnvelope, courierId, true));
 
         awaitProcessedEvent(availabilityEnvelope.eventId());
+        assertTrue(processedEventRepository.existsById(registeredEnvelope.eventId()));
 
         CourierAvailabilityView view = availabilityRepository.findById(courierId).orElseThrow();
         assertTrue(view.isAvailable());

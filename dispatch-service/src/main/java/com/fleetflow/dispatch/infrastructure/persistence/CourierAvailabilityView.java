@@ -34,10 +34,10 @@ public class CourierAvailabilityView {
     public long getLoadVersion() { return loadVersion; }
 
     public void updateLoad(int activeOrderCount, int capacity, long version) {
-        if (version < loadVersion) return;
         if (activeOrderCount < 0 || capacity <= 0 || activeOrderCount > capacity || version < 0) {
             throw new IllegalArgumentException("Invalid courier load");
         }
+        if (version < loadVersion) return;
         this.activeOrderCount = activeOrderCount;
         this.capacity = capacity;
         this.loadVersion = version;

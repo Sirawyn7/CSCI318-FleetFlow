@@ -11,6 +11,10 @@ then remaining capacity and courier ID as tie-breakers.
 `assignment_decisions` records the path and justification or fallback/failure reason.
 Fleet publishes `CourierLoadChanged`; Dispatch reconciles pending reservations so
 consecutive assignments cannot consume the same last slot while load events lag.
+The AI call runs outside database transactions. Commit-time checks lock only the
+chosen courier and target order; stale recommendations fall back to refreshed rules.
+Historical load acknowledgements without a local assignment are logged and applied,
+and adjacent zone rectangles use minimum-inclusive, maximum-exclusive boundaries.
 
 Set `GEMINI_API_KEY` in the Dispatch process environment for live AI dispatch.
 `GEMINI_MODEL` selects the provider model. **The retained project default,

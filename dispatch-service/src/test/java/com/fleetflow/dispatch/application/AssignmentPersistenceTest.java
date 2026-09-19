@@ -20,12 +20,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @DataJpaTest
-@Import({AssignmentService.class, BoundedDispatchAgent.class, CourierLoadProjectionService.class,
+@Import({AssignmentService.class, AssignmentCommitService.class, BoundedDispatchAgent.class,
+        CourierLoadProjectionService.class, CourierAvailabilityProjectionService.class,
         AssignmentPersistenceTest.Zones.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class AssignmentPersistenceTest {
     @Autowired AssignmentService service;
     @Autowired CourierLoadProjectionService loadService;
+    @Autowired CourierAvailabilityProjectionService availabilityService;
     @Autowired CourierAvailabilityViewRepository couriers;
     @Autowired OpenOrderViewRepository orders;
     @Autowired AssignmentRepository assignments;
@@ -74,20 +76,129 @@ class AssignmentPersistenceTest {
         assertEquals(1, orders.count());
     }
 
+    @Test void slowAgentDoesNotBlockFleetUpdatesOrAnotherOrderAndItsChoiceIsRevalidated() throws Exception {
+        UUID firstCourier = courier(1), otherCourier = courier(1);
+        OpenOrderView slow = order(), fast = order();
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            DispatchContext context = invocation.getArgument(0);
+            if (context.targetOrderId().equals(slow.getOrderId())) {
+                entered.countDown();
+                assertTrue(release.await(4, TimeUnit.SECONDS));
+                return new AgentRecommendation(slow.getOrderId(), firstCourier, "Originally had a free slot");
+            }
+            return new AgentRecommendation(fast.getOrderId(), otherCourier, "Other courier is eligible");
+        }).when(agent).recommend(any());
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Future<?> waiting = pool.submit(() -> service.attemptAssignment(slow));
+            try {
+                assertTrue(entered.await(2, TimeUnit.SECONDS));
+                Future<?> progress = pool.submit(() -> {
+                    availabilityService.applyLocationUpdate(UUID.randomUUID(), "CourierLocationUpdated", firstCourier,
+                            -34.45, 150.8, Instant.now());
+                    loadService.apply(UUID.randomUUID(), "CourierLoadChanged", firstCourier, 1, 1, 1, UUID.randomUUID());
+                    availabilityService.applyAvailabilityChange(UUID.randomUUID(), "CourierAvailabilityChanged", firstCourier,
+                            false, Instant.now());
+                    service.attemptAssignment(fast);
+                });
+                progress.get(2, TimeUnit.SECONDS);
+                assertEquals(AssignmentPath.AGENT, decisions.findByOrderId(fast.getOrderId()).orElseThrow().getPathUsed());
+                assertFalse(waiting.isDone());
+            } finally { release.countDown(); }
+            waiting.get(3, TimeUnit.SECONDS);
+        }
+        var stale = decisions.findByOrderId(slow.getOrderId()).orElseThrow();
+        assertEquals(DecisionOutcome.FAILED, stale.getOutcome());
+        assertTrue(stale.getReason().contains("became ineligible"));
+        assertEquals(1, assignments.count());
+    }
+
+    @Test void cancellationDuringAgentCallPreventsCommit() throws Exception {
+        UUID courierId = courier(1);
+        OpenOrderView order = order();
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            assertTrue(release.await(4, TimeUnit.SECONDS));
+            return new AgentRecommendation(order.getOrderId(), courierId, "Snapshot was eligible");
+        }).when(agent).recommend(any());
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Future<?> waiting = pool.submit(() -> service.attemptAssignment(order));
+            try {
+                assertTrue(entered.await(2, TimeUnit.SECONDS));
+                pool.submit(() -> orders.deleteById(order.getOrderId())).get(2, TimeUnit.SECONDS);
+            } finally { release.countDown(); }
+            waiting.get(3, TimeUnit.SECONDS);
+        }
+        assertEquals(0, assignments.count());
+        assertEquals(0, decisions.count());
+        verifyNoInteractions(events);
+    }
+
+    @Test void orphanAcknowledgementKeepsAuthoritativeLoadAndProcessesSubsequentUpdates() {
+        UUID courierId = courier(2), historicalOrder = UUID.randomUUID(), eventId = UUID.randomUUID();
+        loadService.apply(eventId, "CourierLoadChanged", courierId, 1, 2, 1, historicalOrder);
+        assertTrue(processed.existsById(eventId));
+        assertEquals(1, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
+        loadService.apply(UUID.randomUUID(), "CourierLoadChanged", courierId, 0, 2, 2, historicalOrder);
+        assertEquals(0, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
+        assertEquals(0, assignments.count());
+    }
+
+    @Test void negativeVersionIsRejectedBeforeStalenessAndIsNotAcknowledged() {
+        UUID courierId = courier(2), eventId = UUID.randomUUID();
+        assertThrows(IllegalArgumentException.class,
+                () -> loadService.apply(eventId, "CourierLoadChanged", courierId, 1, 2, -1, null));
+        assertFalse(processed.existsById(eventId));
+        assertEquals(0, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
+        loadService.apply(UUID.randomUUID(), "CourierLoadChanged", courierId, 1, 2, 2, null);
+        assertThrows(IllegalArgumentException.class,
+                () -> loadService.apply(eventId, "CourierLoadChanged", courierId, -1, 2, 1, null));
+        assertFalse(processed.existsById(eventId));
+    }
+
+    @Test void concurrentRegistrationsDoNotReplaceTheExistingProjection() throws Exception {
+        UUID courierId = UUID.randomUUID();
+        var start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(4)) {
+            var futures = new java.util.ArrayList<Future<?>>();
+            for (int i = 0; i < 4; i++) {
+                futures.add(pool.submit(() -> {
+                    await(start);
+                    availabilityService.apply(UUID.randomUUID(), "CourierRegistered",
+                            new CourierAvailabilityView(courierId, "VAN", 2, "ZONE_A", false, Instant.now()));
+                }));
+            }
+            start.countDown();
+            for (var future : futures) future.get(5, TimeUnit.SECONDS);
+        }
+        assertEquals(1, couriers.count());
+        assertEquals(4, processed.count());
+        loadService.apply(UUID.randomUUID(), "CourierLoadChanged", courierId, 1, 2, 1, null);
+        availabilityService.apply(UUID.randomUUID(), "CourierRegistered",
+                new CourierAvailabilityView(courierId, "BIKE", 9, "OTHER", false, Instant.now()));
+        var existing = couriers.findById(courierId).orElseThrow();
+        assertEquals(1, existing.getActiveOrderCount());
+        assertEquals(2, existing.getCapacity());
+        assertEquals("VAN", existing.getVehicleType());
+    }
+
     @Test void acknowledgementDoesNotDoubleCountAndCompletionReleasesCapacity() {
         UUID courierId = courier(1);
         OpenOrderView first = order();
         service.attemptAssignment(first);
         UUID acknowledgement = UUID.randomUUID();
-        loadService.apply(acknowledgement, courierId, 1, 1, 1, first.getOrderId());
-        loadService.apply(acknowledgement, courierId, 1, 1, 1, first.getOrderId());
+        loadService.apply(acknowledgement, "CourierLoadChanged", courierId, 1, 1, 1, first.getOrderId());
+        loadService.apply(acknowledgement, "CourierLoadChanged", courierId, 1, 1, 1, first.getOrderId());
         assertEquals(0, assignments.countByCourierIdAndLoadAcknowledgedFalse(courierId));
         OpenOrderView blocked = order();
         service.attemptAssignment(blocked);
         assertEquals(DecisionOutcome.FAILED, decisions.findByOrderId(blocked.getOrderId()).orElseThrow().getOutcome());
-        loadService.apply(UUID.randomUUID(), courierId, 0, 1, 2, first.getOrderId());
+        loadService.apply(UUID.randomUUID(), "CourierLoadChanged", courierId, 0, 1, 2, first.getOrderId());
         // A delayed old assignment snapshot must not restore the completed load.
-        loadService.apply(UUID.randomUUID(), courierId, 1, 1, 1, first.getOrderId());
+        loadService.apply(UUID.randomUUID(), "CourierLoadChanged", courierId, 1, 1, 1, first.getOrderId());
         service.attemptAssignment(order());
         assertEquals(2, assignments.count());
         assertEquals(0, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
@@ -97,9 +208,9 @@ class AssignmentPersistenceTest {
         UUID courierId = courier(3);
         OpenOrderView first = order(), second = order();
         service.attemptAssignment(first); service.attemptAssignment(second);
-        loadService.apply(UUID.randomUUID(), courierId, 2, 3, 2, second.getOrderId());
+        loadService.apply(UUID.randomUUID(), "CourierLoadChanged", courierId, 2, 3, 2, second.getOrderId());
         assertEquals(1, assignments.countByCourierIdAndLoadAcknowledgedFalse(courierId));
-        loadService.apply(UUID.randomUUID(), courierId, 1, 3, 1, first.getOrderId());
+        loadService.apply(UUID.randomUUID(), "CourierLoadChanged", courierId, 1, 3, 1, first.getOrderId());
         assertEquals(0, assignments.countByCourierIdAndLoadAcknowledgedFalse(courierId));
         assertEquals(2, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
     }

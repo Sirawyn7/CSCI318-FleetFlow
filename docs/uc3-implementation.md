@@ -3,8 +3,8 @@
 ## Implemented behaviour
 
 `OrderPlaced` first updates `open_orders_view`, then invokes `AssignmentService`.
-The service locks the open order, checks its decision ledger, and snapshots the
-available fleet and open backlog. Both selection paths require a known courier
+The service checks its decision ledger and snapshots the available fleet and open
+backlog without a transaction or row locks. Both selection paths require a known courier
 location, a configured zone containing the pickup, and at least one remaining slot.
 
 FR8 runs first through the `DispatchAgent` port. `GeminiDispatchAgent` uses
@@ -18,8 +18,8 @@ is eligible, and a nonblank justification of at most 2,000 characters is present
 The whole model/tool loop is bounded to five seconds, with no provider retries and
 at most three sequential tool rounds. Busy workers, provider failures, malformed
 output, invalid choices and timeouts trigger FR7. Late agent results cannot write
-state or publish events. Shutdown/interruption cancels work and rolls back instead
-of publishing during shutdown.
+state or publish events. Interruption while awaiting the agent cancels its work
+before the commit transaction is entered.
 
 FR7 selects the nearest eligible courier using Haversine distance, then greatest
 remaining capacity, then lowest UUID. Success persists the assignment and decision,
@@ -29,6 +29,21 @@ in the backlog. The decision stores the agent rationale or the fallback/failure
 reason. Provider exception messages are not persisted because they may contain
 credentials. A duplicate order delivery cannot create a second decision/assignment.
 
+`AssignmentCommitService` rechecks the order and chosen courier in a short separate
+transaction, locking only that order and courier. It revalidates current availability,
+location, zone and remaining capacity before reserving a slot. A stale agent choice
+triggers refreshed rule-based ranking. Each candidate attempt releases its locks
+before trying another, so it never accumulates locks across the fleet. Cancellation
+or an existing decision prevents a second commit. The external AI call holds no
+database locks, allowing other orders and Fleet updates to continue during its wait.
+
+`DeadlineHttpClient` waits on the existing JDK transport's asynchronous response with
+a finite deadline and cancellation. Its worker exits on timeout even if cancellation
+of the underlying network future is ineffective. Connection and request timeouts
+also remain enabled in the transport. This avoids tying the bounded agent workers
+to blocking socket I/O; tests cover an unresponsive, non-cancellable response and
+subsequent reuse of the same worker.
+
 ## Capacity and event ordering
 
 Fleet remains authoritative for active load. It publishes `CourierLoadChanged`
@@ -37,6 +52,11 @@ need to acknowledge a Dispatch reservation. The contract adds `loadVersion` and
 `acknowledgedOrderId` to the existing event. Fleet increments the version whenever
 the active count changes. Dispatch uses that version to ignore older load values,
 while still acknowledging the older event's specific order.
+Malformed counts/versions are rejected before checking staleness. When a valid
+acknowledgement refers to an absent local assignment (historical, seeded or rolled
+back), Dispatch logs the order/courier IDs, keeps Fleet's authoritative load and
+marks the event processed. There is no local reservation to release. Later load
+updates continue normally; this does not reconstruct missing assignment history.
 
 Dispatch's remaining capacity is:
 
@@ -50,7 +70,9 @@ serialize reservation and acknowledgement updates, including across service
 instances. Reordered acknowledgements can temporarily understate free capacity,
 but cannot expose an already-reserved slot as free. Failed synchronous publication
 rolls back local writes and allows retry. Registration redelivery cannot reset an
-existing projection; availability/location changes share courier locks and reject
+existing projection. Competing first registrations use an insert-only write and a
+single retry in a fresh transaction after a primary-key collision; a missing row
+cannot itself be row-locked. Availability/location changes share courier locks and reject
 older timestamps. Missing registrations cause retry rather than silently dropping
 dependent updates; exhausted retries go to the configured Kafka dead-letter topic.
 
@@ -74,7 +96,10 @@ contains two illustrative geographic rectangles. `ZONE_A` covers the existing
 Wollongong sample pickup (-34.4, 150.8); `ZONE_B` covers a Sydney demo area.
 These are configurable examples, not official service boundaries. Preserve the
 bracketed map-key notation (`"[ZONE_A]"`) so Spring retains the underscore. Unknown
-zone names and pickups outside the configured rectangle fail eligibility.
+zone names and pickups outside the configured rectangle fail eligibility. Rectangles
+include their minimum coordinates and exclude their maximum coordinates, so the
+shared latitude -34.0 belongs to `ZONE_B` alone. Arbitrarily overlapping configured
+rectangles can still overlap; configure disjoint areas if zones must partition the fleet.
 
 1. Register a courier in `ZONE_A` with positive capacity.
 2. Set availability with `PATCH /api/couriers/{id}/availability` and `{"available":true}`.
@@ -126,11 +151,19 @@ versus the test's `Double` matcher). The GPS files were not changed. No Gemini k
 or model override was configured in the execution environment, so live provider
 latency/quality was not tested.
 
+Review-fix verification on 2026-09-19: **100 tests passed** (36 Fleet, 64 Dispatch),
+including all real Kafka integration tests. New regressions cover other orders and
+Fleet updates progressing during a blocked agent call, cancellation and eligibility
+changes before commit, orphan acknowledgements, invalid/stale versions, adjacent
+zone edges, concurrent registration and bounded asynchronous HTTP waits. The
+runtime HTTP transport is also exercised against a local HTTP server. No live
+Gemini request was made. `git diff --check` passed.
+
 ## Limits and follow-up work
 
-- Assignment holds database locks during the bounded model call. This simple
-  coursework implementation trades throughput for consistent capacity checks;
-  it is not a high-throughput dispatch architecture.
+- Rule ranking uses a snapshot; the short commit transaction guarantees eligibility
+  and capacity for the chosen courier, not globally optimal ranking under concurrent
+  fleet changes. Event publication still occurs inside that short transaction.
 - Database commits and Kafka sends are not an atomic distributed transaction.
   The existing synchronous-publish approach detects failed sends, but a process
   crash after broker acceptance and before database commit remains a consistency
@@ -145,4 +178,4 @@ latency/quality was not tested.
   pending reservations. Use fresh, explicitly chosen demo databases or reconcile
   historical state before testing; no existing data is deleted by this change.
 
-Architecture details for review: [ADR 0010](decisions/0010-uc3-agent-and-capacity-reservations.md).
+Architecture details for review: [ADR 0010](decisions/0010-dispatch-capacity-reservations-and-zones.md).

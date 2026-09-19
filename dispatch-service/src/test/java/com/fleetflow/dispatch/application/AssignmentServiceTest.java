@@ -29,7 +29,8 @@ class AssignmentServiceTest {
     @BeforeEach void setup() {
         OperatingZones zones = new OperatingZones();
         zones.setZones(Map.of("ZONE_A", new OperatingZones.Bounds(-35, -34, 150, 151)));
-        service = new AssignmentService(couriers, orders, assignments, decisions, events, agent, zones);
+        var committer = new AssignmentCommitService(couriers, orders, assignments, decisions, events, zones);
+        service = new AssignmentService(couriers, orders, assignments, decisions, agent, zones, committer);
         order = new OpenOrderView(UUID.randomUUID(), UUID.randomUUID(), -34.4, 150.8, -34.5, 150.9,
                 "EXPRESS", Instant.now().plusSeconds(600), Instant.now());
         near = courier(-34.41, "ZONE_A", 3);
@@ -42,9 +43,13 @@ class AssignmentServiceTest {
         return courier;
     }
     private void prepare(List<CourierAvailabilityView> fleet, AgentAttempt attempt) {
+        when(orders.findById(order.getOrderId())).thenReturn(Optional.of(order));
         when(orders.findForUpdate(order.getOrderId())).thenReturn(Optional.of(order));
         when(orders.findAll()).thenReturn(List.of(order));
-        when(couriers.findAvailableForUpdate()).thenReturn(fleet);
+        when(couriers.findByAvailableTrue()).thenReturn(fleet);
+        for (var courier : fleet) {
+            lenient().when(couriers.findForUpdate(courier.getCourierId())).thenReturn(Optional.of(courier));
+        }
         when(agent.attempt(any())).thenReturn(attempt);
     }
     private AssignmentDecision decision() {
@@ -94,6 +99,19 @@ class AssignmentServiceTest {
         service.attemptAssignment(order);
         assertEquals(AssignmentPath.RULE_BASED, decision().getPathUsed());
         assertEquals(near.getCourierId(), decision().getCourierId());
+    }
+
+    @Test void newlyFullAgentChoiceFallsBackToAnotherCourier() {
+        prepare(List.of(near, far), new AgentAttempt(
+                new AgentRecommendation(order.getOrderId(), near.getCourierId(), "Was eligible"), null));
+        when(couriers.findForUpdate(near.getCourierId())).thenAnswer(invocation -> {
+            near.updateLoad(3, 3, 1);
+            return Optional.of(near);
+        });
+        service.attemptAssignment(order);
+        assertEquals(far.getCourierId(), decision().getCourierId());
+        assertEquals(AssignmentPath.RULE_BASED, decision().getPathUsed());
+        assertTrue(decision().getReason().contains("became ineligible"));
     }
 
     @Test void wrongOrderIsRejected() {

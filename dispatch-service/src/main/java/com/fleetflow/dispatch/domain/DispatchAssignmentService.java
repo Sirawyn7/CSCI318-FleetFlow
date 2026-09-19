@@ -20,12 +20,16 @@ public class DispatchAssignmentService {
      * FR7's "deterministic selection" and for reproducible tests.
      */
     public Optional<CourierCandidate> select(GeoCoordinate pickup, List<CourierCandidate> candidates) {
+        return rank(pickup, candidates).stream().findFirst();
+    }
+
+    public List<CourierCandidate> rank(GeoCoordinate pickup, List<CourierCandidate> candidates) {
         return candidates.stream()
                 // Defensive guard: capacity here means currently unreserved slots.
                 .filter(candidate -> candidate.capacity() > 0)
-                .min(Comparator
+                .sorted(Comparator
                         .comparingDouble((CourierCandidate candidate) -> pickup.distanceKmTo(candidate.location()))
                         .thenComparing(Comparator.comparingInt(CourierCandidate::capacity).reversed())
-                        .thenComparing(candidate -> candidate.courierId()));
+                        .thenComparing(candidate -> candidate.courierId())).toList();
     }
 }

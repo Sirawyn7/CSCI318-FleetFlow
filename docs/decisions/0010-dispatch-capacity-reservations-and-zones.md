@@ -21,11 +21,19 @@ processes the first `OrderAssigned`.
 - Reserve capacity in Dispatch's own assignment rows until Fleet acknowledges
   each order. Extend `CourierLoadChanged` with a monotonic courier load version
   and acknowledged order ID. Ignore stale counts, but reconcile every known order.
-- Lock courier projections while selecting/reserving and while applying load
-  acknowledgements. Keep the database transaction on the caller thread and send
-  immutable snapshots to the bounded agent worker. No database operation is exposed
-  as an agent tool. Keep eight workers with no task queue and a five-second overall
-  deadline; bound the model/tool loop separately to three tool rounds.
+- Build immutable snapshots and call the agent outside a transaction. At commit,
+  lock only the target order and selected courier, revalidate current eligibility,
+  then reserve capacity. A stale choice falls back to refreshed rule ranking; each
+  candidate attempt commits or releases its locks before another is tried. Load
+  acknowledgements use the same courier lock. No database operation is exposed as
+  an agent tool. Keep eight workers with no task queue and a five-second overall
+  deadline; bound the model/tool loop separately to three tool rounds. The HTTP
+  adapter waits on asynchronous I/O with a deadline so unresponsive I/O cannot
+  indefinitely occupy an agent worker.
+- Use minimum-inclusive, maximum-exclusive zone bounds so adjacent rectangles
+  have one owner for shared edges. Validate malformed load values before ignoring
+  stale versions. Preserve authoritative load and log acknowledgements without a
+  corresponding local assignment instead of sending historical data to the DLQ.
 - Validate recommendations with the same eligibility set used by rules. Persist
   the chosen path and written explanation. Neither late results nor invalid model
   output can create assignments.
@@ -59,8 +67,14 @@ This decision was accepted by Tenzin on 17 September 2026.
 The design preserves the locked local-read-model integration and primary-agent
 precedence. It prevents capacity oversubscription caused by Dispatch's own pending
 assignments. Reordered acknowledgements may conservatively block a free slot until
-all earlier acknowledgements arrive. Lock duration limits throughput; transactional
-publication still has the existing database/Kafka crash window. Historical data
-needs reconciliation before using the new reservation flags.
+all earlier acknowledgements arrive. The AI wait no longer holds database locks;
+transactional publication still has the existing database/Kafka crash window.
+Historical acknowledgements can advance the load projection without a local
+assignment, but historical assignment/reservation data still needs reconciliation.
+
+Implementation refined after the 2026-09-19 review; the team's decision above is
+preserved. Regression tests cover concurrent progress during a slow agent call,
+commit-time revalidation, cancellation, orphan acknowledgements, zone edges,
+invalid versions, concurrent registration and unresponsive HTTP transport.
 
 The locked model default is unchanged pending the team's response to its retirement.

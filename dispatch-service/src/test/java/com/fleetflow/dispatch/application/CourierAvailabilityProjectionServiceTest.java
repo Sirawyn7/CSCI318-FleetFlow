@@ -25,10 +25,11 @@ class CourierAvailabilityProjectionServiceTest {
 
     @Mock
     private ProcessedEventRepository processedEventRepository;
+    @Mock private org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @Test
     void firstAvailabilityCanPredateRegistrationButOlderShiftUpdatesCannotOverwriteIt() {
-        var service = new CourierAvailabilityProjectionService(availabilityRepository, processedEventRepository);
+        var service = new CourierAvailabilityProjectionService(availabilityRepository, processedEventRepository, transactionManager);
         UUID courierId = UUID.randomUUID();
         Instant registrationTime = Instant.now();
         var view = new CourierAvailabilityView(courierId, "VAN", 3, "ZONE_A", false, registrationTime);
@@ -43,7 +44,7 @@ class CourierAvailabilityProjectionServiceTest {
 
     @Test
     void applyAvailabilityChangeDoesNotRecordProcessedEventWhenViewIsMissing() {
-        CourierAvailabilityProjectionService service = new CourierAvailabilityProjectionService(availabilityRepository, processedEventRepository);
+        CourierAvailabilityProjectionService service = new CourierAvailabilityProjectionService(availabilityRepository, processedEventRepository, transactionManager);
         UUID eventId = UUID.randomUUID();
         UUID courierId = UUID.randomUUID();
         when(processedEventRepository.existsById(eventId)).thenReturn(false);
@@ -58,7 +59,7 @@ class CourierAvailabilityProjectionServiceTest {
 
     @Test
     void applyAvailabilityChangeRecordsProcessedEventWhenViewExists() {
-        CourierAvailabilityProjectionService service = new CourierAvailabilityProjectionService(availabilityRepository, processedEventRepository);
+        CourierAvailabilityProjectionService service = new CourierAvailabilityProjectionService(availabilityRepository, processedEventRepository, transactionManager);
         UUID eventId = UUID.randomUUID();
         UUID courierId = UUID.randomUUID();
         CourierAvailabilityView view = new CourierAvailabilityView(courierId, "VAN", 20, "ZONE_A", false, Instant.now());

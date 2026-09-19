@@ -6,6 +6,15 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 class OperatingZonesTest {
+    @Test void adjacentZonesHaveOnlyOneOwnerOfTheirSharedEdge() {
+        var south = new OperatingZones.Bounds(-35, -34, 150, 151);
+        var north = new OperatingZones.Bounds(-34, -33, 150, 151);
+        var east = new OperatingZones.Bounds(-35, -34, 151, 152);
+        assertFalse(south.contains(new GeoCoordinate(-34, 150.5)));
+        assertTrue(north.contains(new GeoCoordinate(-34, 150.5)));
+        assertFalse(south.contains(new GeoCoordinate(-34.5, 151)));
+        assertTrue(east.contains(new GeoCoordinate(-34.5, 151)));
+    }
     @Test void zoneUsesPickupCoordinatesAndRejectsUnknownOrOutsideAreas() {
         var zones = new OperatingZones();
         zones.setZones(Map.of("A", new OperatingZones.Bounds(-35, -34, 150, 151)));

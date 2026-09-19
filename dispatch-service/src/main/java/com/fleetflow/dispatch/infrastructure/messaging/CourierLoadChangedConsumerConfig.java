@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 public class CourierLoadChangedConsumerConfig {
     @Bean
     public Consumer<CourierLoadChanged> courierLoadChangedConsumer(CourierLoadProjectionService service) {
-        return event -> service.apply(event.envelope().eventId(), event.courierId(), event.activeOrderCount(),
+        return event -> service.apply(event.envelope().eventId(), event.envelope().eventType(), event.courierId(), event.activeOrderCount(),
                 event.capacityCeiling(), event.loadVersion(), event.acknowledgedOrderId());
     }
 }

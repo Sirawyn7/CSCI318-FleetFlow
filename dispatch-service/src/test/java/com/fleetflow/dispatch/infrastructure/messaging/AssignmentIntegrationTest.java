@@ -221,6 +221,28 @@ class AssignmentIntegrationTest {
         throw new AssertionError("Timed out waiting for an assignment_decisions row for order " + orderId);
     }
 
+    @Test
+    void historicalLoadAcknowledgementsDoNotStallTheProjection() throws InterruptedException {
+        UUID courierId = UUID.randomUUID(), historicalOrder = UUID.randomUUID();
+        registerAvailableCourierAt(courierId, -34.41, 150.81);
+        var full = new EventEnvelope(UUID.randomUUID(), "CourierLoadChanged", Instant.now(), historicalOrder.toString());
+        streamBridge.send(Topics.COURIER_LOAD_CHANGED, new CourierLoadChanged(full, courierId, 5, 5, 1, historicalOrder));
+        await(() -> processed.existsById(full.eventId()));
+        assertEquals("CourierLoadChanged", processed.findById(full.eventId()).orElseThrow().getEventType());
+        UUID blockedOrder = UUID.randomUUID();
+        publishOrderPlaced(blockedOrder, -34.4, 150.8);
+        awaitDecisionPresent(blockedOrder);
+        assertEquals(DecisionOutcome.FAILED, assignmentDecisionRepository.findByOrderId(blockedOrder).orElseThrow().getOutcome());
+
+        var freed = new EventEnvelope(UUID.randomUUID(), "CourierLoadChanged", Instant.now(), historicalOrder.toString());
+        streamBridge.send(Topics.COURIER_LOAD_CHANGED, new CourierLoadChanged(freed, courierId, 4, 5, 2, historicalOrder));
+        await(() -> processed.existsById(freed.eventId()));
+        UUID nextOrder = UUID.randomUUID();
+        publishOrderPlaced(nextOrder, -34.4, 150.8);
+        awaitDecisionPresent(nextOrder);
+        assertEquals(DecisionOutcome.ASSIGNED, assignmentDecisionRepository.findByOrderId(nextOrder).orElseThrow().getOutcome());
+    }
+
     private void await(java.util.function.BooleanSupplier condition) throws InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
         while (System.nanoTime() < deadline) {
