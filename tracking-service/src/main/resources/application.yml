@@ -33,14 +33,13 @@ spring:
         deliveryStarted-out-0:
           destination: fleetflow.tracking.delivery-started
         activeDeliverySnapshot-out-0:
-          # Internal materialization topic (see ActiveDeliverySnapshot's Javadoc) --
+          # Internal materialization topic (see ActiveDeliverySnapshot's javadoc) --
           # deliberately named outside the fleetflow.<context>.<event> catalogue
           # convention, to signal this is not a domain event any other service should
-          # ever consume.
+          # ever consume. Key serializer for this binding lives under
+          # spring.cloud.stream.kafka.bindings below, not here -- see that block's
+          # comment for why.
           destination: fleetflow.tracking.internal.active-delivery-by-courier
-          producer:
-            configuration:
-              key.serializer: org.apache.kafka.common.serialization.StringSerializer
         # --- kafka-streams binder: FR11 topology ---
         # in-0 = KStream<String, CourierLocationUpdated>, in-1 = KTable<String,
         # ActiveDeliverySnapshot>, out-0 = KStream<String, DeliveryEtaUpdated>.
@@ -53,6 +52,40 @@ spring:
       kafka:
         binder:
           brokers: ${KAFKA_BROKERS:localhost:9092}
+        # enableDlq is a Kafka-binder-specific extension property, not part of the
+        # generic spring.cloud.stream.bindings.*.consumer.* properties -- it must sit
+        # under spring.cloud.stream.kafka.bindings, not spring.cloud.stream.bindings,
+        # or IntelliJ's config metadata (correctly) flags it as unresolvable and Spring
+        # silently ignores it at runtime instead of actually enabling a DLQ.
+        bindings:
+          orderPlacedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          courierRegisteredConsumer-in-0:
+            consumer:
+              enableDlq: true
+          orderAssignedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          activeDeliverySnapshot-out-0:
+            producer:
+              configuration:
+                key.serializer: org.apache.kafka.common.serialization.StringSerializer
+          # Test-only: Fr11EndToEndIntegrationTest publishes a keyed CourierLocationUpdated
+          # directly to this topic name to simulate FR10's publisher (which fleet-service
+          # itself already keys correctly, see that service's own application.yml).
+          # StreamBridge.send() with a raw destination string (not a named static binding)
+          # creates a dynamic binding named after the destination, which otherwise falls
+          # back to the binder's default byte[] key serializer and fails on a String key.
+          # tracking-service itself never produces to this topic in production.
+          # Bracket syntax ("[...]") is Spring Boot's documented way to keep a dotted map
+          # key as one literal string -- without it, the dots get treated as further YAML
+          # nesting (fleetflow -> fleet -> courier-location-updated) instead of a single
+          # binding name.
+          "[fleetflow.fleet.courier-location-updated]":
+            producer:
+              configuration:
+                key.serializer: org.apache.kafka.common.serialization.StringSerializer
         streams:
           binder:
             brokers: ${KAFKA_BROKERS:localhost:9092}

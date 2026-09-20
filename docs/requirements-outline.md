@@ -182,13 +182,13 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 
 | Event | Publisher | Consumers |
 |---|---|---|
-| `OrderPlaced` | Order | Dispatch *(documented — `AGENTS.md` line 104)* |
+| `OrderPlaced` | Order | Dispatch *(documented — `AGENTS.md` line 104)*, Tracking *(documented — FR11, delivery-destination bootstrap)* |
 | `OrderCancelled` | Order | Dispatch *(documented — ADR 0001, open_orders_view removal; FR3's "releases any held assignment" against `assignments` remains inferred)* |
-| `CourierRegistered` | Fleet | Dispatch *(documented — §7)* |
+| `CourierRegistered` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11, vehicle/average-speed bootstrap)* |
 | `CourierAvailabilityChanged` | Fleet | Dispatch *(documented — §7; also the FR9 offline trigger)* |
 | `CourierLocationUpdated` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11–FR13)* |
 | `CourierLoadChanged` | Fleet | none yet — planned for a future Dispatch capacity-refinement slice, see ADR 0009 |
-| `OrderAssigned` | Dispatch | Tracking *(inferred — starts the delivery)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)*, Order *(inferred — FR2 status)* |
+| `OrderAssigned` | Dispatch | Tracking *(documented — delivery bootstrap)*, Notification *(documented — FR15)*, Fleet *(inferred — FR6 active-order count, see ADR 0002)*, Order *(inferred — FR2 status)* |
 | `OrderReassigned` | Dispatch | Tracking, Notification, Fleet *(all inferred)* |
 | `AssignmentFailed` | Dispatch | Order, Notification *(both inferred)* |
 | `DeliveryStarted` | Tracking | Order *(inferred — FR2 status)*, Notification *(documented — FR15, "in transit")* |
