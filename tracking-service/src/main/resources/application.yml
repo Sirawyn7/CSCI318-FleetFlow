@@ -10,3 +10,87 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
+  cloud:
+    function:
+      # Combines this service's plain-binder consumers (bootstrap projections) with
+      # the kafka-streams-binder function (FR11's topology) in one definition --
+      # Spring Cloud Stream routes each to the correct binder automatically based on
+      # its KStream/KTable vs plain-type parameters.
+      definition: orderPlacedConsumer;courierRegisteredConsumer;orderAssignedConsumer;etaRecalculation
+    stream:
+      bindings:
+        # --- Regular binder: bootstrap consumers ---
+        orderPlacedConsumer-in-0:
+          destination: fleetflow.order.order-placed
+          group: tracking-service
+        courierRegisteredConsumer-in-0:
+          destination: fleetflow.fleet.courier-registered
+          group: tracking-service
+        orderAssignedConsumer-in-0:
+          destination: fleetflow.dispatch.order-assigned
+          group: tracking-service
+        # --- Regular binder: bootstrap publishers ---
+        deliveryStarted-out-0:
+          destination: fleetflow.tracking.delivery-started
+        activeDeliverySnapshot-out-0:
+          # Internal materialization topic (see ActiveDeliverySnapshot's javadoc) --
+          # deliberately named outside the fleetflow.<context>.<event> catalogue
+          # convention, to signal this is not a domain event any other service should
+          # ever consume. Key serializer for this binding lives under
+          # spring.cloud.stream.kafka.bindings below, not here -- see that block's
+          # comment for why.
+          destination: fleetflow.tracking.internal.active-delivery-by-courier
+        # --- kafka-streams binder: FR11 topology ---
+        # in-0 = KStream<String, CourierLocationUpdated>, in-1 = KTable<String,
+        # ActiveDeliverySnapshot>, out-0 = KStream<String, DeliveryEtaUpdated>.
+        etaRecalculation-in-0:
+          destination: fleetflow.fleet.courier-location-updated
+        etaRecalculation-in-1:
+          destination: fleetflow.tracking.internal.active-delivery-by-courier
+        etaRecalculation-out-0:
+          destination: fleetflow.tracking.delivery-eta-updated
+      kafka:
+        binder:
+          brokers: ${KAFKA_BROKERS:localhost:9092}
+        # enableDlq is a Kafka-binder-specific extension property, not part of the
+        # generic spring.cloud.stream.bindings.*.consumer.* properties -- it must sit
+        # under spring.cloud.stream.kafka.bindings, not spring.cloud.stream.bindings,
+        # or IntelliJ's config metadata (correctly) flags it as unresolvable and Spring
+        # silently ignores it at runtime instead of actually enabling a DLQ.
+        bindings:
+          orderPlacedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          courierRegisteredConsumer-in-0:
+            consumer:
+              enableDlq: true
+          orderAssignedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          activeDeliverySnapshot-out-0:
+            producer:
+              configuration:
+                key.serializer: org.apache.kafka.common.serialization.StringSerializer
+          # Test-only: Fr11EndToEndIntegrationTest publishes a keyed CourierLocationUpdated
+          # directly to this topic name to simulate FR10's publisher (which fleet-service
+          # itself already keys correctly, see that service's own application.yml).
+          # StreamBridge.send() with a raw destination string (not a named static binding)
+          # creates a dynamic binding named after the destination, which otherwise falls
+          # back to the binder's default byte[] key serializer and fails on a String key.
+          # tracking-service itself never produces to this topic in production.
+          # Bracket syntax ("[...]") is Spring Boot's documented way to keep a dotted map
+          # key as one literal string -- without it, the dots get treated as further YAML
+          # nesting (fleetflow -> fleet -> courier-location-updated) instead of a single
+          # binding name.
+          "[fleetflow.fleet.courier-location-updated]":
+            producer:
+              configuration:
+                key.serializer: org.apache.kafka.common.serialization.StringSerializer
+        streams:
+          binder:
+            brokers: ${KAFKA_BROKERS:localhost:9092}
+            # Stable across restarts -- Kafka Streams uses this as the consumer group
+            # id and to name local RocksDB state-store directories for recovery.
+            application-id: tracking-service-eta-recalculation
+            configuration:
+              default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
