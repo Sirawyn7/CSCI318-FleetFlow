@@ -23,6 +23,8 @@ public class CourierLoadProjectionService {
     @Transactional
     public void apply(UUID eventId, String eventType, UUID courierId, int activeCount, int capacity, long version, UUID orderId) {
         if (processed.existsById(eventId)) return;
+        // Assignment publication holds this same lock until commit/rollback. A fast
+        // acknowledgement waits here before looking up its committed reservation.
         var courier = couriers.findForUpdate(courierId)
                 .orElseThrow(() -> new IllegalStateException("Load received before courier registration"));
         if (processed.existsById(eventId)) return;

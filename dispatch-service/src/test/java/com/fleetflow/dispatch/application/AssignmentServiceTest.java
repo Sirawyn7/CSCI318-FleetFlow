@@ -29,8 +29,8 @@ class AssignmentServiceTest {
     @BeforeEach void setup() {
         OperatingZones zones = new OperatingZones();
         zones.setZones(Map.of("ZONE_A", new OperatingZones.Bounds(-35, -34, 150, 151)));
-        var committer = new AssignmentCommitService(couriers, orders, assignments, decisions, events, zones);
-        service = new AssignmentService(couriers, orders, assignments, decisions, agent, zones, committer);
+        service = new AssignmentService(couriers, orders, assignments, decisions, agent, zones, events,
+                mock(org.springframework.transaction.PlatformTransactionManager.class));
         order = new OpenOrderView(UUID.randomUUID(), UUID.randomUUID(), -34.4, 150.8, -34.5, 150.9,
                 "EXPRESS", Instant.now().plusSeconds(600), Instant.now());
         near = courier(-34.41, "ZONE_A", 3);
@@ -112,6 +112,18 @@ class AssignmentServiceTest {
         assertEquals(far.getCourierId(), decision().getCourierId());
         assertEquals(AssignmentPath.RULE_BASED, decision().getPathUsed());
         assertTrue(decision().getReason().contains("became ineligible"));
+    }
+
+    @Test void newlyUnavailableAgentChoiceFallsBackToAnotherCourier() {
+        prepare(List.of(near, far), new AgentAttempt(
+                new AgentRecommendation(order.getOrderId(), near.getCourierId(), "Was available"), null));
+        when(couriers.findForUpdate(near.getCourierId())).thenAnswer(invocation -> {
+            near.markAvailability(false, Instant.now());
+            return Optional.of(near);
+        });
+        service.attemptAssignment(order);
+        assertEquals(far.getCourierId(), decision().getCourierId());
+        assertEquals(AssignmentPath.RULE_BASED, decision().getPathUsed());
     }
 
     @Test void wrongOrderIsRejected() {

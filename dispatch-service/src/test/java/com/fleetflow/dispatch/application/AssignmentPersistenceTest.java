@@ -20,7 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @DataJpaTest
-@Import({AssignmentService.class, AssignmentCommitService.class, BoundedDispatchAgent.class,
+@Import({AssignmentService.class, BoundedDispatchAgent.class,
         CourierLoadProjectionService.class, CourierAvailabilityProjectionService.class,
         AssignmentPersistenceTest.Zones.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -145,6 +145,43 @@ class AssignmentPersistenceTest {
         loadService.apply(UUID.randomUUID(), "CourierLoadChanged", courierId, 0, 2, 2, historicalOrder);
         assertEquals(0, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
         assertEquals(0, assignments.count());
+    }
+
+    @Test void acknowledgementArrivingDuringPublicationWaitsForAssignmentCommit() throws Exception {
+        UUID courierId = courier(2), eventId = UUID.randomUUID();
+        OpenOrderView order = order();
+        var publishing = new CountDownLatch(1);
+        var releaseCommit = new CountDownLatch(1);
+        var acknowledgementStarted = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            publishing.countDown();
+            assertTrue(releaseCommit.await(5, TimeUnit.SECONDS));
+            return null;
+        }).when(events).publishOrderAssigned(any());
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Future<?> assignment = pool.submit(() -> service.attemptAssignment(order));
+            Future<?> acknowledgement;
+            try {
+                assertTrue(publishing.await(3, TimeUnit.SECONDS));
+                // A separate transaction cannot yet see the reservation.
+                assertTrue(assignments.findByOrderId(order.getOrderId()).isEmpty());
+                acknowledgement = pool.submit(() -> {
+                    acknowledgementStarted.countDown();
+                    loadService.apply(eventId, "CourierLoadChanged", courierId, 1, 2, 1, order.getOrderId());
+                });
+                assertTrue(acknowledgementStarted.await(1, TimeUnit.SECONDS));
+                assertThrows(TimeoutException.class, () -> acknowledgement.get(200, TimeUnit.MILLISECONDS));
+                assertFalse(processed.existsById(eventId));
+            } finally { releaseCommit.countDown(); }
+            assignment.get(5, TimeUnit.SECONDS);
+            acknowledgement.get(5, TimeUnit.SECONDS);
+        }
+        assertTrue(processed.existsById(eventId));
+        assertEquals(0, assignments.countByCourierIdAndLoadAcknowledgedFalse(courierId));
+        assertEquals(1, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
+        // The acknowledged reservation must not consume the courier's second slot.
+        service.attemptAssignment(order());
+        assertEquals(2, assignments.count());
     }
 
     @Test void negativeVersionIsRejectedBeforeStalenessAndIsNotAcknowledged() {

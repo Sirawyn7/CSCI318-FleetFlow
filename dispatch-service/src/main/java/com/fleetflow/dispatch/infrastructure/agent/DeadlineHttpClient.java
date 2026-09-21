@@ -1,5 +1,6 @@
 package com.fleetflow.dispatch.infrastructure.agent;
 
+import com.fleetflow.dispatch.application.Deadline;
 import dev.langchain4j.http.client.*;
 import dev.langchain4j.http.client.sse.ServerSentEventListener;
 import dev.langchain4j.http.client.sse.ServerSentEventParser;
@@ -18,16 +19,11 @@ final class DeadlineHttpClient implements HttpClient {
 
     @Override
     public SuccessfulHttpResponse execute(HttpRequest request) {
-        if (Thread.currentThread().isInterrupted()) throw new IllegalStateException("Dispatch request cancelled");
-        CompletableFuture<SuccessfulHttpResponse> response = delegate.executeAsync(request);
         try {
-            return response.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            return Deadline.await(() -> delegate.executeAsync(request), timeout);
         } catch (InterruptedException e) {
-            response.cancel(true);
-            Thread.currentThread().interrupt();
             throw new IllegalStateException("Dispatch request cancelled", e);
         } catch (TimeoutException e) {
-            response.cancel(true);
             throw new IllegalStateException("Dispatch HTTP deadline exceeded", e);
         } catch (ExecutionException e) {
             if (e.getCause() instanceof RuntimeException cause) throw cause;

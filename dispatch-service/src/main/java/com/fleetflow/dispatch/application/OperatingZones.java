@@ -15,7 +15,14 @@ public class OperatingZones {
 
     public boolean serves(String zone, GeoCoordinate pickup) {
         Bounds bounds = zones.get(zone);
-        return bounds != null && bounds.contains(pickup);
+        if (bounds == null || !bounds.containsClosed(pickup)) return false;
+        if (bounds.contains(pickup)) return true;
+        // Prefer the half-open owner at shared edges. Where none exists, include
+        // the closed perimeter. Zone ID breaks ties at shared perimeter corners
+        // independently of map iteration order. Interior overlaps remain allowed.
+        if (zones.values().stream().anyMatch(b -> b.contains(pickup))) return false;
+        return zones.entrySet().stream().filter(e -> e.getValue().containsClosed(pickup))
+                .map(Map.Entry::getKey).min(String::compareTo).filter(zone::equals).isPresent();
     }
 
     public record Bounds(double minLatitude, double maxLatitude, double minLongitude, double maxLongitude) {
@@ -31,6 +38,11 @@ public class OperatingZones {
             // Half-open intervals give adjacent rectangles one owner for their shared edge.
             return point.latitude() >= minLatitude && point.latitude() < maxLatitude
                     && point.longitude() >= minLongitude && point.longitude() < maxLongitude;
+        }
+
+        private boolean containsClosed(GeoCoordinate point) {
+            return point.latitude() >= minLatitude && point.latitude() <= maxLatitude
+                    && point.longitude() >= minLongitude && point.longitude() <= maxLongitude;
         }
     }
 }

@@ -24,23 +24,16 @@ public class BoundedDispatchAgent {
     }
 
     public AgentAttempt attempt(DispatchContext context) {
-        Future<AgentRecommendation> task;
         try {
-            task = executor.submit(() -> agent.recommend(context));
+            return new AgentAttempt(Deadline.await(() -> executor.submit(() -> agent.recommend(context)), timeout), null);
         } catch (RejectedExecutionException e) {
             return new AgentAttempt(null, "Agent busy");
-        }
-        try {
-            return new AgentAttempt(task.get(timeout.toMillis(), TimeUnit.MILLISECONDS), null);
         } catch (TimeoutException e) {
-            task.cancel(true);
             return new AgentAttempt(null, "Agent timed out");
         } catch (ExecutionException e) {
             // Do not persist provider exception messages: these can contain URLs/API keys.
             return new AgentAttempt(null, "Agent unavailable or returned invalid output");
         } catch (InterruptedException e) {
-            task.cancel(true);
-            Thread.currentThread().interrupt();
             throw new IllegalStateException("Dispatch interrupted", e);
         }
     }
