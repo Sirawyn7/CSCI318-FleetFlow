@@ -131,3 +131,20 @@ on assignment_decisions instead avoids that clash and still follows the same
 check-before-write pattern.
 
 ---
+
+## 2026-09-20 — FR11's internal topic and the FR10 re-keying (Landon)
+**Prompt/context:** Building FR11's Kafka Streams topology, two non-obvious calls
+came up: how the topology's KTable side gets materialized, and that FR10's 
+already-shipped CourierLocationUpdated publisher needed a partition key added for the
+stream-table join to be co-partitioned correctly.
+**Proposed by agent:** Two options each, written up in
+docs/decisions/0010-fr11-internal-topic-and-rekeying.md — a new internal topic vs.
+querying the deliveries table directly from inside the topology; re-keying FR10's
+publisher vs. having Tracking re-publish a duplicate keyed stream.
+**Decision:** Accepted option 1 in both cases — a new internal topic
+(fleetflow.tracking.internal.active-delivery-by-courier), and re-keying FR10's
+publisher directly rather than working around it.
+**Rationale:** See `docs/decisions/0010-fr11-internal-topic-and-rekeying.md` for full
+reasoning.
+
+---

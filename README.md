@@ -66,7 +66,7 @@ the full architecture and hard constraints, and
 | `notification-service` | Service | 8085 | Templated alerts, conversational status explainer (FR15-FR16) |
 | `gps-simulator` | External client | — | Posts simulated location pings to Fleet's REST endpoint (FR10) |
 | `fleetflow-contracts` | Contract artifact | — | Shared event records for the 15-event §6 catalogue |
-| Kafka | Broker | 9092 | Event backbone. Order, Fleet and Dispatch have explicit event bindings |
+| `Kafka` | Broker | 9092 | Event backbone. Order, Fleet and Dispatch have explicit event bindings; Tracking additionally uses the Kafka Streams binder for FR11's ETA topology alongside the regular binder for its bootstrap consumers |
 
 ## Structural exceptions
 
@@ -112,8 +112,10 @@ mvn -pl order-service spring-boot:run
 Kafka is a mandated dependency of the project. Fleet and Dispatch now have a real
 binding for `CourierRegistered` (see `docs/decisions/0004-fleetflow-contracts-published-language.md`
 for the pattern); Order also has explicit `OrderPlaced` and `OrderCancelled` output bindings;
-Tracking and Notification have no bindings configured, and there's no committed Docker Compose setup
-yet — that's a later commit.
+Tracking now has bindings too, on both the regular binder (bootstrap consumers for
+`OrderPlaced`, `CourierRegistered`, `OrderAssigned`) and the Kafka Streams binder (FR11's
+ETA recalculation topology); Notification has no bindings configured, and there's no
+committed Docker Compose setup yet — that's a later commit.
 
 For local development or a manual demo, run a single-node broker yourself, e.g.:
 
@@ -168,3 +170,51 @@ Publication failures roll back database writes. Synchronous Kafka sends surface 
 errors, but JPA and Kafka are not a distributed transaction: a database commit failure
 after a successful send can still leave an emitted event. Exactly-once creation and
 retry idempotency are not guaranteed by this transaction boundary.
+
+## UC6 — Real-time ETA recalculation (FR11)
+
+Tracking runs on port 8084. FR12–FR14 (geofence arrival, SLA/anomaly detection,
+delivery completion) remain out of scope for this slice.
+
+Tracking has no REST API of its own yet — this slice is entirely event-driven. On
+`OrderAssigned`, it looks up the order's destination (from a derived read model
+projected off `OrderPlaced`) and the courier's vehicle type (from a derived read model
+projected off `CourierRegistered`), creates a `Delivery`, and publishes
+`DeliveryStarted` plus an internal snapshot used to drive the ETA topology.
+
+A Kafka Streams topology then joins every `CourierLocationUpdated` ping against the
+courier's active delivery (a stream-table join), recalculates the estimated arrival
+via Haversine distance × a locked average speed per vehicle type (no external routing
+API — see `docs/decisions/0010-fr11-internal-topic-and-rekeying.md`), and publishes
+`DeliveryEtaUpdated` only when the new estimate differs from the last published one by
+more than 60 seconds, to avoid republishing on every single ping.
+
+Tracking consumes `fleetflow.order.order-placed`, `fleetflow.fleet.courier-registered`
+and `fleetflow.dispatch.order-assigned` in consumer group `tracking-service`. Bootstrap
+is idempotent: if `OrderAssigned` arrives before either read model has been populated
+(Kafka does not guarantee ordering across different topics), it is not marked
+processed, so a later redelivery can still complete it rather than the assignment
+being silently and permanently dropped. Rejected messages retry then go to the
+binder's dead-letter topics (`error.<source-topic>.tracking-service`) for
+investigation/replay.
+
+**Integration boundaries:** the internal topic
+`fleetflow.tracking.internal.active-delivery-by-courier` is Streams-topology plumbing,
+not a catalogue event — no other service should ever consume it. `CourierLocationUpdated`
+is now published with a Kafka record key (courier ID), a retroactive change to FR10's
+already-shipped publisher, required so the stream-table join is correctly
+co-partitioned; see the ADR above for the full reasoning. ETA history is not persisted
+anywhere yet — only the latest published estimate lives in the topology's own RocksDB
+state store, not in a queryable table.
+
+Run all Tracking tests (requires Docker for the real Kafka integration test):
+
+```text
+mvn -pl tracking-service -am test
+```
+
+Run domain and application tests without Docker:
+
+```text
+mvn -pl tracking-service -am test -Dtest=EtaCalculationServiceTest,DeliveryTest,DeliveryBootstrapServiceTest,ContractBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false
+```

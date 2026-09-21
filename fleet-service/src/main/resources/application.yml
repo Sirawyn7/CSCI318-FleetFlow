@@ -41,5 +41,13 @@ spring:
           deliveryCompletedConsumer-in-0:
             consumer:
               enableDlq: true
+          # FR11: this binding now sends a Kafka record key (courierId, see
+          # CourierLocationUpdatedEventPublisher's Javadoc) -- without an explicit key
+          # serializer the default binder config assumes a byte[] key and this would fail
+          # to serialize the String key at runtime.
+          courierLocationUpdated-out-0:
+            producer:
+              configuration:
+                key.serializer: org.apache.kafka.common.serialization.StringSerializer
         binder:
           brokers: ${KAFKA_BROKERS:localhost:9092}
