@@ -16,7 +16,7 @@ spring:
       # the kafka-streams-binder function (FR11's topology) in one definition --
       # Spring Cloud Stream routes each to the correct binder automatically based on
       # its KStream/KTable vs plain-type parameters.
-      definition: orderPlacedConsumer;courierRegisteredConsumer;orderAssignedConsumer;etaRecalculation
+      definition: orderPlacedConsumer;courierRegisteredConsumer;orderAssignedConsumer;etaRecalculation;nearDestinationDetection;arrivedDetection
     stream:
       bindings:
         # --- Regular binder: bootstrap consumers ---
@@ -33,7 +33,7 @@ spring:
         deliveryStarted-out-0:
           destination: fleetflow.tracking.delivery-started
         activeDeliverySnapshot-out-0:
-          # Internal materialization topic (see ActiveDeliverySnapshot's javadoc) --
+          # Internal materialization topic (see ActiveDeliverySnapshot's Javadoc) --
           # deliberately named outside the fleetflow.<context>.<event> catalogue
           # convention, to signal this is not a domain event any other service should
           # ever consume. Key serializer for this binding lives under
@@ -49,6 +49,20 @@ spring:
           destination: fleetflow.tracking.internal.active-delivery-by-courier
         etaRecalculation-out-0:
           destination: fleetflow.tracking.delivery-eta-updated
+        # --- kafka-streams binder: FR12 topology (two separate joins, see
+        # GeofenceDetectionTopology's Javadoc for why) ---
+        nearDestinationDetection-in-0:
+          destination: fleetflow.fleet.courier-location-updated
+        nearDestinationDetection-in-1:
+          destination: fleetflow.tracking.internal.active-delivery-by-courier
+        nearDestinationDetection-out-0:
+          destination: fleetflow.tracking.delivery-near-destination
+        arrivedDetection-in-0:
+          destination: fleetflow.fleet.courier-location-updated
+        arrivedDetection-in-1:
+          destination: fleetflow.tracking.internal.active-delivery-by-courier
+        arrivedDetection-out-0:
+          destination: fleetflow.tracking.delivery-arrived
       kafka:
         binder:
           brokers: ${KAFKA_BROKERS:localhost:9092}
