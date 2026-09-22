@@ -64,6 +64,12 @@ public class Fr12EndToEndIntegrationTest {
     static void dynamicProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.cloud.stream.kafka.binder.brokers", KAFKA::getBootstrapServers);
         registry.add("spring.cloud.stream.kafka.streams.binder.brokers", KAFKA::getBootstrapServers);
+        registry.add("spring.cloud.stream.kafka.streams.binder.functions.etaRecalculation.application-id",
+                () -> "tracking-it-eta-" + UUID.randomUUID());
+        registry.add("spring.cloud.stream.kafka.streams.binder.functions.nearDestinationDetection.application-id",
+                () -> "tracking-it-near-" + UUID.randomUUID());
+        registry.add("spring.cloud.stream.kafka.streams.binder.functions.arrivedDetection.application-id",
+                () -> "tracking-it-arrived-" + UUID.randomUUID());
         registry.add("spring.datasource.url", () -> "jdbc:h2:mem:tracking-fr12-it;DB_CLOSE_DELAY=-1");
     }
 
