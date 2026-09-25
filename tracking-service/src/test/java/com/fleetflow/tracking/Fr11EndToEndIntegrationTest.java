@@ -48,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * DeliveryStarted + the internal active-delivery snapshot) -> CourierLocationUpdated
  * (drives the Streams topology's stream-table join) -> asserts a DeliveryEtaUpdated
  * actually lands on the output topic.
-
+ *
  * Known limitation: there is a short, unavoidable window between the active-delivery
  * snapshot being published and the Streams topology's KTable actually materializing
  * it -- this test allows a fixed settle period before sending the location ping

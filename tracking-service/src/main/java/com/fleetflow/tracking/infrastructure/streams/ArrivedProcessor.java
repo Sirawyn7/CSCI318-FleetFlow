@@ -2,9 +2,7 @@ package com.fleetflow.tracking.infrastructure.streams;
 
 import com.fleetflow.contracts.EventEnvelope;
 import com.fleetflow.contracts.tracking.DeliveryArrived;
-import com.fleetflow.tracking.domain.Delivery;
 import com.fleetflow.tracking.domain.GeofenceEvaluationService;
-import jdk.jfr.Event;
 import org.apache.kafka.streams.processor.api.Processor;
 import org.apache.kafka.streams.processor.api.ProcessorContext;
 import org.apache.kafka.streams.processor.api.Record;
@@ -17,10 +15,12 @@ import java.util.UUID;
  * FR12: publishes DeliveryArrived the first time a delivery crosses the (tighter)
  * arrival threshold, and never again for that delivery. Same shape as
  * NearDestinationProcessor, kept as a separate class/store rather than merged, per
- * the deliberate two-function design (see GeofenceDetectionTopology's Javadoc for why
- * this PR didn't try to emit both event types from one join).
+ * the deliberate two-function design (see GeofenceDetectionTopology's Javadoc).
+ *
+ * arrivedAt is the ping's own capturedAt (carried through GeofenceCandidate), not
+ * Instant.now() -- after a restart, rebalance, or backlog replay, "now" would record
+ * processing time rather than when the courier actually arrived.
  */
-
 public class ArrivedProcessor implements Processor<String, GeofenceCandidate, String, DeliveryArrived> {
 
     static final String STORE_NAME = "arrived-published-per-delivery";
@@ -54,7 +54,7 @@ public class ArrivedProcessor implements Processor<String, GeofenceCandidate, St
                 DeliveryArrived.class.getSimpleName(),
                 Instant.now(),
                 UUID.randomUUID().toString());
-        DeliveryArrived event = new DeliveryArrived(envelope, candidate.deliveryId(), Instant.now());
+        DeliveryArrived event = new DeliveryArrived(envelope, candidate.deliveryId(), candidate.capturedAt());
 
         context.forward(new Record<>(deliveryKey, event, record.timestamp()));
     }

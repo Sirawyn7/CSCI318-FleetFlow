@@ -31,16 +31,18 @@ public class GeofenceEvaluationServiceTest {
     }
 
     @Test
-    void isArrivedIsTrueJustBeyondTheThreshold() {
+    void isArrivedIsFalseJustBeyondTheThreshold() {
         assertFalse(GeofenceEvaluationService.isArrived(50.01));
     }
 
     @Test
     void arrivedIsAlwaysAlsoNear() {
-        // ARRIVAL_THRESHOLD_METERS must stay within NEAR_THRESHOLD_METERS -- otherwise
-        // a courier could "arrive" without ever having been "near", breaking the
-        // publish-order assumption in requirements-outline.md FR12 ("publishes
-        // DeliveryNearDestination then DeliveryArrived").
+        // The arrival radius must stay nested inside the near radius -- otherwise a
+        // courier could "arrive" without ever having crossed "near" first. This says
+        // nothing about publish ordering between the two topology functions
+        // themselves: they're independent, write to different topics, and consumers
+        // should not assume DeliveryNearDestination always arrives before
+        // DeliveryArrived.
         assertTrue(GeofenceEvaluationService.ARRIVAL_THRESHOLD_METERS
                 <= GeofenceEvaluationService.NEAR_THRESHOLD_METERS);
     }

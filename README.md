@@ -207,33 +207,6 @@ co-partitioned; see the ADR above for the full reasoning. ETA history is not per
 anywhere yet — only the latest published estimate lives in the topology's own RocksDB
 state store, not in a queryable table.
 
-## UC6 — Geofence arrival detection (FR12)
-
-Also part of Tracking, port 8084. Two more Kafka Streams topology functions, run
-alongside FR11's ETA topology in the same application.
-
-Each function does its own stream-table join of `CourierLocationUpdated` against the
-active-delivery snapshot (the same join shape as FR11's), computing the courier's
-distance to the destination via the same Haversine helper. One publishes
-`DeliveryNearDestination` the first time a delivery crosses a 500m threshold; the
-other publishes `DeliveryArrived` the first time it crosses a 50m threshold. Each
-fires at most once per delivery, tracked in its own RocksDB state store, so a courier
-lingering near the destination doesn't cause repeated publishes.
-
-**Why two separate functions instead of one join emitting both events:** a single
-Kafka Streams function has one output type. Routing two different event types out of
-one join to two different topics needs either a multi-output array return (risky to
-verify without a broker on hand to test the binder's generic-type resolution against)
-or dropping to raw `Topology#to()` calls, a bigger departure from every other
-topology in this codebase. Two small, independently testable joins reading the same
-input topics is the simpler, lower-risk choice — see
-`docs/decisions/0011-fr12-geofence-thresholds-and-function-split.md`.
-
-The 500m/50m thresholds are locked defaults (`GeofenceEvaluationService`), not
-sourced from an external mapping service, same "pick defaults now, tune during
-testing" spirit as FR11's average speeds. The 50m arrival threshold is deliberately
-inside the 500m near threshold, so a delivery can never "arrive" without having
-already been "near" — `GeofenceEvaluationServiceTest` asserts this invariant directly.
 
 Run all Tracking tests (requires Docker for the real Kafka integration tests):
 
