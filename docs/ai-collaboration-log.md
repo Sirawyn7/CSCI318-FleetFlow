@@ -145,9 +145,9 @@ and validate load values before checking staleness. Also address the registratio
 race, duplicate-event handling, HTTP deadlines, and regression coverage. The
 Fleet and Dispatch suites passed all 100 tests, including Kafka integration tests.
 Implementation details are recorded in
-`docs/decisions/0011-dispatch-capacity-reservations-and-zones.md`.
+`docs/decisions/0012-dispatch-capacity-reservations-and-zones.md`.
 **Decision:** Accepted the UC3 fixes described in prompt 0009, while keeping
-option 3 from ADR 0011. The agent remains the main dispatch path, with FR7 as the
+option 3 from ADR 0012. The agent remains the main dispatch path, with FR7 as the
 fallback. Both paths still have to follow the same zone, capacity, and reservation
 checks.
 **Rationale:** I wanted to keep the agent-based approach, but waiting for the
@@ -156,7 +156,7 @@ again before saving an assignment helps prevent using capacity that is no longer
 available. The load-event and zone-boundary fixes also make the existing checks
 more reliable. These changes improve the implementation without changing the
 overall approach I accepted in
-`docs/decisions/0011-dispatch-capacity-reservations-and-zones.md`.
+`docs/decisions/0012-dispatch-capacity-reservations-and-zones.md`.
 
 ---
 
@@ -175,13 +175,6 @@ publisher directly rather than working around it.
 **Rationale:** See `docs/decisions/0010-fr11-internal-topic-and-rekeying.md` for full
 reasoning.
 
-
----
-
-## UC3 documentation pointer
-
-The accepted agent-first dispatch decision, capacity reservations, zone policy and
-known limits are recorded in [ADR 0011](decisions/0011-dispatch-capacity-reservations-and-zones.md).
 ---
 
 ## 2026-09-23 — FR12's threshold defaults and the two-function split (Landon)

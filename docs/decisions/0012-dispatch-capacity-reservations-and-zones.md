@@ -1,4 +1,4 @@
-# ADR 0011 — Dispatch agent boundary, zones and capacity reservations
+# ADR 0012 — Dispatch agent boundary, zones and capacity reservations
 
 **Status:** Accepted
 **Owner:** Tenzin
