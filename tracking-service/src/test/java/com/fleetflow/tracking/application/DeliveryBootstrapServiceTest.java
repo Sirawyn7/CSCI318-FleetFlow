@@ -1,16 +1,10 @@
 package com.fleetflow.tracking.application;
 
 import com.fleetflow.tracking.domain.GeoCoordinate;
+import com.fleetflow.tracking.domain.Delivery;
 import com.fleetflow.tracking.infrastructure.messaging.ActiveDeliverySnapshotPublisher;
 import com.fleetflow.tracking.infrastructure.messaging.DeliveryStartedEventPublisher;
-import com.fleetflow.tracking.infrastructure.persistence.CourierVehicleTypeView;
-import com.fleetflow.tracking.infrastructure.persistence.CourierVehicleTypeViewRepository;
-import com.fleetflow.tracking.infrastructure.persistence.DeliveryJpaRepository;
-import com.fleetflow.tracking.infrastructure.persistence.OrderDestinationView;
-import com.fleetflow.tracking.infrastructure.persistence.OrderDestinationViewRepository;
-import com.fleetflow.tracking.infrastructure.persistence.ProcessedEvent;
-import com.fleetflow.tracking.infrastructure.persistence.ProcessedEventRepository;
-import com.fleetflow.tracking.domain.Delivery;
+import com.fleetflow.tracking.infrastructure.persistence.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;

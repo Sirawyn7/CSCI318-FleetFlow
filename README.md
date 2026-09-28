@@ -177,8 +177,8 @@ retry idempotency are not guaranteed by this transaction boundary.
 
 ## UC6 — Real-time ETA recalculation (FR11)
 
-Tracking runs on port 8084. FR12–FR14 (geofence arrival, SLA/anomaly detection,
-delivery completion) remain out of scope for this slice.
+Tracking runs on port 8084. FR13–FR14 (SLA/anomaly detection, delivery completion)
+remain out of scope for this slice.
 
 Tracking has no REST API of its own yet — this slice is entirely event-driven. On
 `OrderAssigned`, it looks up the order's destination (from a derived read model
@@ -211,7 +211,8 @@ co-partitioned; see the ADR above for the full reasoning. ETA history is not per
 anywhere yet — only the latest published estimate lives in the topology's own RocksDB
 state store, not in a queryable table.
 
-Run all Tracking tests (requires Docker for the real Kafka integration test):
+
+Run all Tracking tests (requires Docker for the real Kafka integration tests):
 
 ```text
 mvn -pl tracking-service -am test
@@ -220,5 +221,5 @@ mvn -pl tracking-service -am test
 Run domain and application tests without Docker:
 
 ```text
-mvn -pl tracking-service -am test -Dtest=EtaCalculationServiceTest,DeliveryTest,DeliveryBootstrapServiceTest,ContractBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false
+mvn -pl tracking-service -am test -Dtest=EtaCalculationServiceTest,DeliveryTest,DeliveryBootstrapServiceTest,GeofenceEvaluationServiceTest,ContractBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false
 ```
