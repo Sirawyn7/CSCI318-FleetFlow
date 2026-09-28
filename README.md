@@ -1,34 +1,5 @@
 # FleetFlow
 
-## UC3 — Assign courier to order (FR7, FR8)
-
-Dispatch now tries the LangChain4j/Gemini agent first. Its read-only tools inspect
-fleet load, positions and the open-order backlog. The whole agent loop has a
-5-second deadline. Provider errors, invalid recommendations and timeouts fall back
-to deterministic rules: matching pickup zone, available capacity, nearest courier,
-then remaining capacity and courier ID as tie-breakers.
-
-`assignment_decisions` records the path and justification or fallback/failure reason.
-Fleet publishes `CourierLoadChanged`; Dispatch reconciles pending reservations so
-consecutive assignments cannot consume the same last slot while load events lag.
-The AI call runs outside database transactions. Commit-time checks lock only the
-chosen courier and target order; stale recommendations fall back to refreshed rules.
-Historical load acknowledgements without a local assignment are logged and applied,
-and adjacent zone rectangles use minimum-inclusive, maximum-exclusive boundaries.
-
-Set `GEMINI_API_KEY` in the Dispatch process environment for live AI dispatch.
-`GEMINI_MODEL` selects the provider model. **The retained project default,
-`gemini-2.0-flash`, has been retired by Google; a supported replacement must be
-agreed before a live agent demo.** Without usable credentials/model, FR7 still runs.
-No test requires live Gemini access or spends model quota.
-
-The configured `ZONE_A` and `ZONE_B` rectangles are demo areas, not official
-boundaries. Configure `dispatch.zones` for the fleet's actual service areas.
-Unknown zones and pickups outside a courier's area are ineligible on both paths.
-
-See [UC3 implementation and demo guide](docs/uc3-implementation.md) for setup,
-audit queries, test commands, event ordering and remaining integration limits.
-
 ## UC2 — Fleet profiles and load (FR4, FR6)
 
 Fleet runs on port 8082. FR5 shift controls remain a separate team slice.
@@ -60,8 +31,8 @@ assignment arrives later. Rejected messages retry then go to the binder's dead-l
 topics (`error.<source-topic>.fleet-service`) for investigation/replay.
 
 **Integration boundaries:** FR6 protects Fleet's local capacity invariant; consuming
-an already-published assignment cannot undo Dispatch's decision. Dispatch now
-checks reported load plus pending reservations before assigning (UC3). Profile updates and deactivation currently
+an already-published assignment cannot undo Dispatch's decision. Dispatch still
+needs its own assignment capacity checks. Profile updates and deactivation currently
 persist in Fleet only: the existing event catalogue has no profile-update or
 deactivation event, so these changes are not propagated to Dispatch's view in this
 slice. FR5 integration must respect the deactivation flag. Reassignment and
@@ -95,7 +66,7 @@ the full architecture and hard constraints, and
 | `notification-service` | Service | 8085 | Templated alerts, conversational status explainer (FR15-FR16) |
 | `gps-simulator` | External client | — | Posts simulated location pings to Fleet's REST endpoint (FR10) |
 | `fleetflow-contracts` | Contract artifact | — | Shared event records for the 16-event §6 catalogue |
-| Kafka | Broker | 9092 | Event backbone. Order, Fleet and Dispatch have explicit event bindings |
+| `Kafka` | Broker | 9092 | Event backbone. Order, Fleet and Dispatch have explicit event bindings; Tracking additionally uses the Kafka Streams binder for FR11's ETA topology alongside the regular binder for its bootstrap consumers |
 
 ## Structural exceptions
 
@@ -124,6 +95,10 @@ mvn -version
 ```
 
 ## Build and run
+
+Dispatch accepts optional `GEMINI_API_KEY` and `GEMINI_MODEL` environment variables;
+FR7's rule-based path works without a key. Configure `dispatch.zones` in
+`dispatch-service/src/main/resources/application.yml`.
 
 Build the whole reactor:
 

@@ -145,9 +145,9 @@ and validate load values before checking staleness. Also address the registratio
 race, duplicate-event handling, HTTP deadlines, and regression coverage. The
 Fleet and Dispatch suites passed all 100 tests, including Kafka integration tests.
 Implementation details are recorded in
-`docs/decisions/0010-dispatch-capacity-reservations-and-zones.md`.
+`docs/decisions/0011-dispatch-capacity-reservations-and-zones.md`.
 **Decision:** Accepted the UC3 fixes described in prompt 0009, while keeping
-option 3 from ADR 0010. The agent remains the main dispatch path, with FR7 as the
+option 3 from ADR 0011. The agent remains the main dispatch path, with FR7 as the
 fallback. Both paths still have to follow the same zone, capacity, and reservation
 checks.
 **Rationale:** I wanted to keep the agent-based approach, but waiting for the
@@ -156,6 +156,29 @@ again before saving an assignment helps prevent using capacity that is no longer
 available. The load-event and zone-boundary fixes also make the existing checks
 more reliable. These changes improve the implementation without changing the
 overall approach I accepted in
-`docs/decisions/0010-dispatch-capacity-reservations-and-zones.md`.
+`docs/decisions/0011-dispatch-capacity-reservations-and-zones.md`.
 
 ---
+
+## 2026-09-20 — FR11's internal topic and the FR10 re-keying (Landon)
+**Prompt/context:** Building FR11's Kafka Streams topology, two non-obvious calls
+came up: how the topology's KTable side gets materialized, and that FR10's
+already-shipped CourierLocationUpdated publisher needed a partition key added for the
+stream-table join to be co-partitioned correctly.
+**Proposed by agent:** Two options each, written up in
+docs/decisions/0010-fr11-internal-topic-and-rekeying.md — a new internal topic vs.
+querying the deliveries table directly from inside the topology; re-keying FR10's
+publisher vs. having Tracking re-publish a duplicate keyed stream.
+**Decision:** Accepted option 1 in both cases — a new internal topic
+(fleetflow.tracking.internal.active-delivery-by-courier), and re-keying FR10's
+publisher directly rather than working around it.
+**Rationale:** See `docs/decisions/0010-fr11-internal-topic-and-rekeying.md` for full
+reasoning.
+
+
+---
+
+## UC3 documentation pointer
+
+The accepted agent-first dispatch decision, capacity reservations, zone policy and
+known limits are recorded in [ADR 0011](decisions/0011-dispatch-capacity-reservations-and-zones.md).

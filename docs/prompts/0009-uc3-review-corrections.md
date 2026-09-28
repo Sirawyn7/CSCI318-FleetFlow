@@ -1,7 +1,7 @@
 # Prompt 0009 — UC3 review corrections
 
 **Date:** 2026-09-19
-**Used for:** ADR 0010 implementation refinement; report Section 5
+**Used for:** ADR 0011 implementation refinement; report Section 5
 **Why this one is worth citing:** The review modified the earlier AI-generated transaction and load-projection design.
 
 ## User prompt (edited for clarity)

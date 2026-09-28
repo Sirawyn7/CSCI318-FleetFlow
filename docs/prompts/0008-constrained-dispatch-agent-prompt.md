@@ -1,7 +1,7 @@
 # Prompt 0008 — Constrained dispatch agent prompt
 
 **Date:** 2026-09-17
-**Used for:** dispatch assignment implementation; report Section 3.6 agentic AI component
+**Used for:** ADR 0011 dispatch assignment implementation; report Section 3.6 agentic AI component
 **Why this one's worth citing:** Demonstrates the constrained-tool-access and structured-output prompting technique required by `docs/AGENTS.md`.
 
 ## Decision
@@ -37,4 +37,4 @@ courierId and explain why. No external routing or travel-time claims.
 
 The application independently checks IDs, eligibility and justification length;
 the prompt is not the authority for assignment. This accepted design is recorded in
-ADR 0010 and reflects the human decision made by Tenzin on 2026-09-17.
+ADR 0011 and reflects the human decision made by Tenzin on 2026-09-17.

@@ -75,6 +75,7 @@ dispatch:
     api-key: ${GEMINI_API_KEY:}
     model: ${GEMINI_MODEL:gemini-2.0-flash}
   # Demonstration boundaries only. Replace with your fleet's actual service areas.
+  # Keep bracketed map keys ("[ZONE_A]") so Spring preserves underscores.
   zones:
     "[ZONE_A]":
       min-latitude: -34.7

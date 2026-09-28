@@ -1,4 +1,4 @@
-# ADR 0010 — Dispatch agent boundary, zones and capacity reservations
+# ADR 0011 — Dispatch agent boundary, zones and capacity reservations
 
 **Status:** Accepted
 **Owner:** Tenzin
@@ -31,7 +31,10 @@ processes the first `OrderAssigned`.
   adapter waits on asynchronous I/O with a deadline so unresponsive I/O cannot
   indefinitely occupy an agent worker.
 - Use minimum-inclusive, maximum-exclusive zone bounds so adjacent rectangles
-  have one owner for shared edges. Validate malformed load values before ignoring
+  have one owner for shared edges, retaining the closed outer perimeter when no
+  half-open owner exists; zone ID breaks shared perimeter ties. Interior overlaps
+  remain allowed, so configure disjoint areas when zones must partition the fleet.
+  Validate malformed load values before ignoring
   stale versions. Preserve authoritative load and log acknowledgements without a
   corresponding local assignment instead of sending historical data to the DLQ.
 - Validate recommendations with the same eligibility set used by rules. Persist
@@ -78,3 +81,19 @@ commit-time revalidation, cancellation, orphan acknowledgements, zone edges,
 invalid versions, concurrent registration and unresponsive HTTP transport.
 
 The locked model default is unchanged pending the team's response to its retirement.
+
+Rule ranking uses a snapshot: commit-time checks guarantee the selected courier's
+eligibility and capacity, not globally optimal ranking during concurrent updates.
+Synchronous publication can detect send failures but cannot make database commits
+and Kafka sends atomic; an outbox is a separate resilience change.
+
+Failed orders remain in the backlog without an automatic availability-triggered
+retry or sweep. UC3 makes one attempt per order. Fleet profile edits/deactivation
+are not propagated by the existing event contract (ADR 0008); cancellation and
+reassignment of held assignments remain outside this decision's scope.
+
+Existing databases require a reviewed migration/backfill of load versions and
+acknowledgement flags so completed historical assignments do not become permanent
+pending reservations. Use fresh demo databases or reconcile historical state.
+Real-broker tests use a deterministic agent; live provider quality and latency
+require a separate credentialed smoke test with a supported model.
