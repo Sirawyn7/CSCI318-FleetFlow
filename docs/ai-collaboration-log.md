@@ -148,3 +148,24 @@ publisher directly rather than working around it.
 reasoning.
 
 ---
+
+## 2026-09-23 — FR12's threshold defaults and the two-function split (Landon)
+**Prompt/context:** Building FR12's geofence detection, two questions came up: what
+counts as "near" vs "arrived" (requirements-outline.md left this as an open item --
+"pick now, tune during testing"), and how to publish two different event types
+(DeliveryNearDestination, DeliveryArrived) from what's logically one stream
+evaluation, since a single Kafka Streams function has one output topic.
+**Proposed by agent:** Three options for the multi-event-type problem, written up in
+`docs/decisions/0011-fr12-geofence-thresholds-and-function-split.md` -- two separate
+topology functions (one join each), a single join with a multi-output array return
+via Kafka Streams' .split(), or a single join dropping to raw Topology#to() calls for
+a manual side output.
+**Decision:** Two separate functions (nearDestinationDetection, arrivedDetection),
+each with its own join and state store. Thresholds locked at 500m (near) and 50m
+(arrival).
+**Rationale:** See `docs/decisions/0011-fr12-geofence-thresholds-and-function-split.md`
+for full reasoning -- the multi-output array approach was judged too risky to verify
+without a broker on hand, given two real binder/YAML config bugs already surfaced
+getting FR11's simpler single-output topology working correctly.
+
+---
