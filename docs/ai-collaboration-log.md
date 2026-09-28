@@ -132,9 +132,37 @@ check-before-write pattern.
 
 ---
 
+## 2026-09-19 — UC3 assignment reliability improvements (Tenzin)
+**Prompt/context:** I asked the assistant to improve UC3 (FR7/FR8), covering
+transaction boundaries during agent calls, load acknowledgements without a local
+assignment, shared zone boundaries, and load-event validation. The work also
+covered concurrent registration, duplicate events, HTTP timeouts, and regression
+tests. See `docs/prompts/0009-uc3-review-corrections.md`.
+**Proposed by agent:** Run the agent outside database transactions and revalidate
+the selected courier in a short commit transaction; preserve authoritative Fleet
+load updates when no local reservation exists; use exclusive maximum zone bounds;
+and validate load values before checking staleness. Also address the registration
+race, duplicate-event handling, HTTP deadlines, and regression coverage. The
+Fleet and Dispatch suites passed all 100 tests, including Kafka integration tests.
+Implementation details are recorded in
+`docs/decisions/0012-dispatch-capacity-reservations-and-zones.md`.
+**Decision:** Accepted the UC3 fixes described in prompt 0009, while keeping
+option 3 from ADR 0012. The agent remains the main dispatch path, with FR7 as the
+fallback. Both paths still have to follow the same zone, capacity, and reservation
+checks.
+**Rationale:** I wanted to keep the agent-based approach, but waiting for the
+agent should not block other assignments or courier updates. Checking the courier
+again before saving an assignment helps prevent using capacity that is no longer
+available. The load-event and zone-boundary fixes also make the existing checks
+more reliable. These changes improve the implementation without changing the
+overall approach I accepted in
+`docs/decisions/0012-dispatch-capacity-reservations-and-zones.md`.
+
+---
+
 ## 2026-09-20 — FR11's internal topic and the FR10 re-keying (Landon)
 **Prompt/context:** Building FR11's Kafka Streams topology, two non-obvious calls
-came up: how the topology's KTable side gets materialized, and that FR10's 
+came up: how the topology's KTable side gets materialized, and that FR10's
 already-shipped CourierLocationUpdated publisher needed a partition key added for the
 stream-table join to be co-partitioned correctly.
 **Proposed by agent:** Two options each, written up in

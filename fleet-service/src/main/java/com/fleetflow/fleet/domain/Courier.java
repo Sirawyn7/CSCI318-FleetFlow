@@ -23,6 +23,8 @@ public class Courier {
 
     private int capacity;
 
+    private long loadVersion;
+
     private String operatingZone;
 
     @Enumerated(EnumType.STRING)
@@ -145,6 +147,7 @@ public class Courier {
             throw new IllegalStateException("Courier is deactivated or at capacity");
         }
         activeOrderCount++;
+        loadVersion++;
     }
 
     public void completeOrder() {
@@ -152,6 +155,7 @@ public class Courier {
             throw new IllegalStateException("Courier has no active orders");
         }
         activeOrderCount--;
+        loadVersion++;
     }
 
     public boolean isDeactivated() {
@@ -161,4 +165,6 @@ public class Courier {
     public int getActiveOrderCount() {
         return activeOrderCount;
     }
+
+    public long getLoadVersion() { return loadVersion; }
 }

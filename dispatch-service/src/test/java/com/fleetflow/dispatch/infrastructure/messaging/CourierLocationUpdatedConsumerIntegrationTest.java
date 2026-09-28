@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * CourierAvailabilityChangedConsumerIntegrationTest.
  */
 @SpringBootTest
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
 class CourierLocationUpdatedConsumerIntegrationTest {
 
@@ -65,13 +66,13 @@ class CourierLocationUpdatedConsumerIntegrationTest {
 
         awaitViewPresent(courierId);
 
-        Instant capturedAt = Instant.now();
+        Instant capturedAt = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         EventEnvelope locationEnvelope = new EventEnvelope(
                 UUID.randomUUID(), "CourierLocationUpdated", Instant.now(), UUID.randomUUID().toString());
         streamBridge.send(Topics.COURIER_LOCATION_UPDATED,
                 new CourierLocationUpdated(locationEnvelope, courierId, new GeoPoint(-34.4, 150.8), capturedAt));
 
-        awaitProcessedEventCount(2);
+        awaitProcessedEvent(locationEnvelope.eventId());
 
         CourierAvailabilityView view = availabilityRepository.findById(courierId).orElseThrow();
         assertEquals(-34.4, view.getLatitude());
@@ -130,14 +131,14 @@ class CourierLocationUpdatedConsumerIntegrationTest {
         throw new AssertionError("Timed out waiting for courier_availability_view.latitude to be set");
     }
 
-    private void awaitProcessedEventCount(long expected) throws InterruptedException {
+    private void awaitProcessedEvent(UUID eventId) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 15000;
         while (System.currentTimeMillis() < deadline) {
-            if (processedEventRepository.count() == expected) {
+            if (processedEventRepository.existsById(eventId)) {
                 return;
             }
             Thread.sleep(200);
         }
-        throw new AssertionError("Timed out waiting for processed_events row count to reach " + expected);
+        throw new AssertionError("Timed out waiting for processed event " + eventId);
     }
 }

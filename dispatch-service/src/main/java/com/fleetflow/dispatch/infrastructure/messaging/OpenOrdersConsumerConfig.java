@@ -20,7 +20,7 @@ import java.util.function.Consumer;
  * service name, so every dispatch-service instance shares one logical subscription
  * rather than each receiving its own copy of every event.
  *
- * <p>orderPlacedConsumer also triggers FR7's rule-based assignment attempt, in the
+ * <p>orderPlacedConsumer also triggers UC3's agent-first assignment attempt, in the
  * same consumer rather than a second one independently subscribed to OrderPlaced.
  * Two independent consumer groups on the same topic would race: the assignment side
  * could delete-or-skip an open_orders_view row before the projection side has

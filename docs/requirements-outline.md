@@ -187,8 +187,8 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | `CourierRegistered` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11, vehicle/average-speed bootstrap)* |
 | `CourierAvailabilityChanged` | Fleet | Dispatch *(documented — §7; also the FR9 offline trigger)* |
 | `CourierLocationUpdated` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11–FR13)* |
-| `CourierLoadChanged` | Fleet | none yet — planned for a future Dispatch capacity-refinement slice, see ADR 0009 |
-| `OrderAssigned` | Dispatch | Tracking *(documented — delivery bootstrap)*, Notification *(documented — FR15)*, Fleet *(inferred — FR6 active-order count, see ADR 0002)*, Order *(inferred — FR2 status)* |
+| `CourierLoadChanged` | Fleet | Dispatch *(documented — ADR 0009; UC3 now projects versioned load and acknowledges local reservations)* |
+| `OrderAssigned` | Dispatch | Tracking *(documented — delivery bootstrap)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)*, Order *(inferred — FR2 status)* |
 | `OrderReassigned` | Dispatch | Tracking, Notification, Fleet *(all inferred)* |
 | `AssignmentFailed` | Dispatch | Order, Notification *(both inferred)* |
 | `DeliveryStarted` | Tracking | Order *(inferred — FR2 status)*, Notification *(documented — FR15, "in transit")* |
@@ -209,7 +209,7 @@ Two schema gaps surfaced directly by building this matrix, both raised as ADRs r
 ## 7. Inter-Service Communication (Locked)
 
 **Dispatch → Fleet: local read model, not synchronous REST.**
-Dispatch maintains its own `courier_availability_view`, updated by consuming `CourierRegistered`, `CourierAvailabilityChanged` and `CourierLocationUpdated`. Dispatch never calls Fleet synchronously.
+Dispatch maintains its own `courier_availability_view`, updated by consuming `CourierRegistered`, `CourierAvailabilityChanged`, `CourierLocationUpdated` and `CourierLoadChanged`. Dispatch never calls Fleet synchronously.
 
 *Rationale for the report:* avoids distributed coupling between bounded contexts — Dispatch continues assigning even if Fleet is unavailable. The trade-off is eventual consistency: the read model may lag by the event propagation delay, acceptable because assignment tolerates a courier position that is seconds stale.
 

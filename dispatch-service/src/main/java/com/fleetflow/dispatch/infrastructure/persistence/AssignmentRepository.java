@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface AssignmentRepository extends JpaRepository<Assignment, UUID> {
 
     Optional<Assignment> findByOrderId(UUID orderId);
+
+    int countByCourierIdAndLoadAcknowledgedFalse(UUID courierId);
 }

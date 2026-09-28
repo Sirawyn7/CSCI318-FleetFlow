@@ -1,6 +1,7 @@
 package com.fleetflow.fleet.application;
 
 import com.fleetflow.fleet.domain.Courier;
+import com.fleetflow.fleet.infrastructure.messaging.CourierLoadChangedEventPublisher;
 import com.fleetflow.fleet.infrastructure.persistence.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,12 +14,15 @@ public class CourierLoadService {
     private final CourierJpaRepository couriers;
     private final CourierOrderLoadRepository loads;
     private final ProcessedEventRepository processed;
+    private final CourierLoadChangedEventPublisher publisher;
 
     public CourierLoadService(CourierJpaRepository couriers, CourierOrderLoadRepository loads,
-                              ProcessedEventRepository processed) {
+                              ProcessedEventRepository processed,
+                              CourierLoadChangedEventPublisher publisher) {
         this.couriers = couriers;
         this.loads = loads;
         this.processed = processed;
+        this.publisher = publisher;
     }
 
     @Transactional
@@ -43,5 +47,8 @@ public class CourierLoadService {
         }
         processed.save(new ProcessedEvent(eventId,
                 completed ? "DeliveryCompleted" : "OrderAssigned", Instant.now()));
+        // Also acknowledge semantic duplicates and completion-before-assignment: a
+        // Dispatch reservation must be released even when the counter did not change.
+        publisher.publish(courier, orderId);
     }
 }

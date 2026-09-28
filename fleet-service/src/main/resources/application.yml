@@ -21,6 +21,8 @@ spring:
       # event. Used imperatively via StreamBridge.send(bindingName, event) rather than a
       # Supplier bean, since publishing is triggered by a REST call, not polled.
       bindings:
+        courierLoadChanged-out-0:
+          destination: fleetflow.fleet.courier-load-changed
         orderAssignedConsumer-in-0:
           destination: fleetflow.dispatch.order-assigned
           group: fleet-service
@@ -35,6 +37,9 @@ spring:
           destination: fleetflow.fleet.courier-registered
       kafka:
         bindings:
+          courierLoadChanged-out-0:
+            producer:
+              sync: true
           orderAssignedConsumer-in-0:
             consumer:
               enableDlq: true

@@ -1,120 +1,125 @@
 package com.fleetflow.dispatch.application;
 
-import com.fleetflow.dispatch.domain.Assignment;
 import com.fleetflow.dispatch.domain.CourierCandidate;
+import com.fleetflow.dispatch.domain.Assignment;
 import com.fleetflow.dispatch.domain.DispatchAssignmentService;
 import com.fleetflow.dispatch.domain.GeoCoordinate;
-import com.fleetflow.dispatch.infrastructure.persistence.AssignmentDecision;
-import com.fleetflow.dispatch.infrastructure.persistence.AssignmentDecisionRepository;
-import com.fleetflow.dispatch.infrastructure.persistence.AssignmentPath;
-import com.fleetflow.dispatch.infrastructure.persistence.AssignmentRepository;
-import com.fleetflow.dispatch.infrastructure.persistence.CourierAvailabilityView;
-import com.fleetflow.dispatch.infrastructure.persistence.CourierAvailabilityViewRepository;
-import com.fleetflow.dispatch.infrastructure.persistence.DecisionOutcome;
-import com.fleetflow.dispatch.infrastructure.persistence.OpenOrderView;
-import com.fleetflow.dispatch.infrastructure.persistence.OpenOrderViewRepository;
+import com.fleetflow.dispatch.infrastructure.persistence.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
+import java.util.UUID;
 
-/**
- * FR7's use-case orchestration: on OrderPlaced (see OpenOrdersConsumerConfig),
- * attempts a rule-based assignment for one order. Takes plain infrastructure/domain
- * types rather than contract records -- contracts imports stay confined to
- * infrastructure/ (docs/decisions/0004 rule 4); the caller (the consumer bean) has
- * already translated the event before reaching here.
- */
+/** UC3 orchestration: the external agent never runs inside a database transaction. */
 @Service
 public class AssignmentService {
+    private final CourierAvailabilityViewRepository couriers;
+    private final OpenOrderViewRepository orders;
+    private final AssignmentRepository assignments;
+    private final AssignmentDecisionRepository decisions;
+    private final BoundedDispatchAgent agent;
+    private final OperatingZones zones;
+    private final AssignmentEventPort events;
+    private final TransactionTemplate commitTransaction;
+    private final DispatchAssignmentService rules = new DispatchAssignmentService();
 
-    private static final String NO_ELIGIBLE_COURIER_REASON = "No available courier with known location and capacity";
-
-    private final CourierAvailabilityViewRepository courierAvailabilityViewRepository;
-    private final OpenOrderViewRepository openOrderViewRepository;
-    private final AssignmentRepository assignmentRepository;
-    private final AssignmentDecisionRepository assignmentDecisionRepository;
-    private final AssignmentEventPort eventPort;
-    private final DispatchAssignmentService dispatchAssignmentService = new DispatchAssignmentService();
-
-    public AssignmentService(CourierAvailabilityViewRepository courierAvailabilityViewRepository,
-                              OpenOrderViewRepository openOrderViewRepository,
-                              AssignmentRepository assignmentRepository,
-                              AssignmentDecisionRepository assignmentDecisionRepository,
-                              AssignmentEventPort eventPort) {
-        this.courierAvailabilityViewRepository = courierAvailabilityViewRepository;
-        this.openOrderViewRepository = openOrderViewRepository;
-        this.assignmentRepository = assignmentRepository;
-        this.assignmentDecisionRepository = assignmentDecisionRepository;
-        this.eventPort = eventPort;
+    public AssignmentService(CourierAvailabilityViewRepository couriers, OpenOrderViewRepository orders,
+            AssignmentRepository assignments, AssignmentDecisionRepository decisions,
+            BoundedDispatchAgent agent, OperatingZones zones, AssignmentEventPort events,
+            PlatformTransactionManager transactionManager) {
+        this.couriers = couriers;
+        this.orders = orders;
+        this.assignments = assignments;
+        this.decisions = decisions;
+        this.agent = agent;
+        this.zones = zones;
+        this.events = events;
+        commitTransaction = new TransactionTemplate(transactionManager);
+        commitTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
-    @Transactional
-    public void attemptAssignment(OpenOrderView order) {
-        // assignment_decisions, keyed by orderId, is this concern's own idempotency
-        // ledger -- deliberately not the shared processed_events table, which is
-        // already marked processed for this same OrderPlaced event by
-        // OpenOrdersProjectionService.applyOrderPlaced. Checking that table here would
-        // always read "already processed" and skip assignment on the very first
-        // delivery, not just on redelivery.
-        if (assignmentDecisionRepository.findByOrderId(order.getOrderId()).isPresent()) {
-            return;
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void attemptAssignment(OpenOrderView incoming) {
+        UUID orderId = incoming.getOrderId();
+        if (decisions.findByOrderId(orderId).isPresent()) return;
+        OpenOrderView order = orders.findById(orderId).orElse(null);
+        if (order == null) return;
+        var pickup = new GeoCoordinate(order.getPickupLatitude(), order.getPickupLongitude());
+        var fleet = fleetSnapshot(pickup);
+        var backlog = orders.findAll().stream().map(this::snapshot).toList();
+        AgentAttempt attempt = agent.attempt(new DispatchContext(orderId, Instant.now(), backlog, fleet));
+        AgentRecommendation proposal = attempt.recommendation();
+        boolean valid = proposal != null && orderId.equals(proposal.orderId())
+                && proposal.justification() != null && !proposal.justification().isBlank()
+                && proposal.justification().length() <= 2000
+                && fleet.stream().anyMatch(c -> c.eligibleForTarget() && c.courierId().equals(proposal.courierId()));
+        String fallback = attempt.fallbackReason() == null ? "Agent recommendation rejected" : attempt.fallbackReason();
+        if (valid) {
+            if (tryAssign(orderId, proposal.courierId(), AssignmentPath.AGENT, proposal.justification())) return;
+            fallback = "Agent recommendation became ineligible before commit";
         }
 
-        List<CourierCandidate> candidates = courierAvailabilityViewRepository.findByAvailableTrue().stream()
-                .filter(view -> view.getLatitude() != null && view.getLongitude() != null)
-                .map(this::toCandidate)
-                .toList();
-
-        GeoCoordinate pickup = new GeoCoordinate(order.getPickupLatitude(), order.getPickupLongitude());
-        Optional<CourierCandidate> selected = dispatchAssignmentService.select(pickup, candidates);
-
-        // One clock read shared by the Assignment and its AssignmentDecision -- they
-        // record the same decision and should carry the same timestamp, not two
-        // separate Instant.now() calls that could drift apart.
-        Instant decidedAt = Instant.now();
-
-        if (selected.isPresent()) {
-            assignSuccessfully(order, selected.get(), decidedAt);
-        } else {
-            recordFailure(order, decidedAt);
+        // Re-read after the remote call. Each attempted reservation has its own short
+        // transaction and locks only this order and one courier; failed attempts release both.
+        List<CourierCandidate> eligible = fleetSnapshot(pickup).stream()
+                .filter(DispatchContext.CourierSnapshot::eligibleForTarget)
+                .map(c -> new CourierCandidate(c.courierId(), c.remainingCapacity(), c.location())).toList();
+        String reason = fallback + "; selected nearest eligible courier, then greatest remaining capacity, then courier ID";
+        for (CourierCandidate candidate : rules.rank(pickup, eligible)) {
+            if (tryAssign(orderId, candidate.courierId(), AssignmentPath.RULE_BASED, reason)) return;
         }
+        recordFailure(orderId, fallback
+                + "; no available courier with known location, remaining capacity and a matching zone");
     }
 
-    private void assignSuccessfully(OpenOrderView order, CourierCandidate courier, Instant decidedAt) {
-        Assignment assignment = Assignment.create(order.getOrderId(), courier.courierId(), decidedAt);
-        assignmentRepository.save(assignment);
-        assignmentDecisionRepository.save(new AssignmentDecision(
-                order.getOrderId(), courier.courierId(), AssignmentPath.RULE_BASED, DecisionOutcome.ASSIGNED,
-                null, decidedAt));
-
-        // This is ADR 0001's deferred piece: an assigned order leaves the backlog.
-        // Guarded, matching OpenOrdersProjectionService.applyOrderCancelled's existing
-        // convention, rather than calling deleteById unconditionally.
-        if (openOrderViewRepository.existsById(order.getOrderId())) {
-            openOrderViewRepository.deleteById(order.getOrderId());
-        }
-
-        eventPort.publishOrderAssigned(assignment);
+    private List<DispatchContext.CourierSnapshot> fleetSnapshot(GeoCoordinate pickup) {
+        return couriers.findByAvailableTrue().stream()
+                .map(c -> snapshot(c, pickup))
+                .filter(c -> c.location() != null).toList();
     }
 
-    private void recordFailure(OpenOrderView order, Instant decidedAt) {
-        assignmentDecisionRepository.save(new AssignmentDecision(
-                order.getOrderId(), null, AssignmentPath.RULE_BASED, DecisionOutcome.FAILED,
-                NO_ELIGIBLE_COURIER_REASON, decidedAt));
-        // open_orders_view keeps the row -- the order stays in the backlog. This is a
-        // terminal outcome for FR7's scope: the idempotency check above means this
-        // order is never reconsidered automatically. Closing that gap is FR8 or a
-        // future reassignment-style sweep, not this slice.
-        eventPort.publishAssignmentFailed(order.getOrderId(), NO_ELIGIBLE_COURIER_REASON);
+    private DispatchContext.CourierSnapshot snapshot(CourierAvailabilityView courier, GeoCoordinate pickup) {
+        int pending = assignments.countByCourierIdAndLoadAcknowledgedFalse(courier.getCourierId());
+        return CourierEligibility.snapshot(courier, pickup, pending, zones);
     }
 
-    private CourierCandidate toCandidate(CourierAvailabilityView view) {
-        return new CourierCandidate(
-                view.getCourierId(),
-                view.getCapacity(),
-                new GeoCoordinate(view.getLatitude(), view.getLongitude()));
+    /** Each candidate is revalidated under the same courier lock used by load acknowledgements. */
+    private boolean tryAssign(UUID orderId, UUID courierId, AssignmentPath path, String reason) {
+        return Boolean.TRUE.equals(commitTransaction.execute(status -> {
+            var order = orders.findForUpdate(orderId).orElse(null);
+            if (order == null || decisions.findByOrderId(orderId).isPresent()) return true;
+            var courier = couriers.findForUpdate(courierId).orElse(null);
+            var pickup = new GeoCoordinate(order.getPickupLatitude(), order.getPickupLongitude());
+            if (courier == null || !snapshot(courier, pickup).eligibleForTarget()) return false;
+
+            Instant decidedAt = Instant.now();
+            var assignment = Assignment.create(orderId, courierId, decidedAt);
+            assignments.save(assignment);
+            decisions.save(new AssignmentDecision(orderId, courierId, path, DecisionOutcome.ASSIGNED, reason, decidedAt));
+            orders.deleteById(orderId);
+            events.publishOrderAssigned(assignment);
+            return true;
+        }));
+    }
+
+    private void recordFailure(UUID orderId, String reason) {
+        commitTransaction.executeWithoutResult(status -> {
+            if (orders.findForUpdate(orderId).isEmpty() || decisions.findByOrderId(orderId).isPresent()) return;
+            decisions.save(new AssignmentDecision(orderId, null, AssignmentPath.RULE_BASED,
+                    DecisionOutcome.FAILED, reason, Instant.now()));
+            events.publishAssignmentFailed(orderId, reason);
+        });
+    }
+
+    private DispatchContext.OrderSnapshot snapshot(OpenOrderView order) {
+        return new DispatchContext.OrderSnapshot(order.getOrderId(),
+                new GeoCoordinate(order.getPickupLatitude(), order.getPickupLongitude()),
+                new GeoCoordinate(order.getDropoffLatitude(), order.getDropoffLongitude()),
+                order.getServiceLevel(), order.getRequestedDeliveryBy(), order.getPlacedAt());
     }
 }

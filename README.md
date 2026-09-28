@@ -65,7 +65,7 @@ the full architecture and hard constraints, and
 | `tracking-service` | Service | 8084 | Location stream processing, ETA, geofencing, risk detection (FR11-FR14) |
 | `notification-service` | Service | 8085 | Templated alerts, conversational status explainer (FR15-FR16) |
 | `gps-simulator` | External client | — | Posts simulated location pings to Fleet's REST endpoint (FR10) |
-| `fleetflow-contracts` | Contract artifact | — | Shared event records for the 15-event §6 catalogue |
+| `fleetflow-contracts` | Contract artifact | — | Shared event records for the 16-event §6 catalogue |
 | `Kafka` | Broker | 9092 | Event backbone. Order, Fleet and Dispatch have explicit event bindings; Tracking additionally uses the Kafka Streams binder for FR11's ETA topology alongside the regular binder for its bootstrap consumers |
 
 ## Structural exceptions
@@ -95,6 +95,10 @@ mvn -version
 ```
 
 ## Build and run
+
+Dispatch accepts optional `GEMINI_API_KEY` and `GEMINI_MODEL` environment variables;
+FR7's rule-based path works without a key. Configure `dispatch.zones` in
+`dispatch-service/src/main/resources/application.yml`.
 
 Build the whole reactor:
 

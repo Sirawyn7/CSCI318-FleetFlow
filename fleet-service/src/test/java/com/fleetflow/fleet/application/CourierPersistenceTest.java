@@ -15,6 +15,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Import({CourierLoadService.class, CourierManagementService.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class CourierPersistenceTest {
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    com.fleetflow.fleet.infrastructure.messaging.CourierLoadChangedEventPublisher publisher;
     @Autowired CourierJpaRepository couriers;
     @Autowired CourierOrderLoadRepository loads;
     @Autowired ProcessedEventRepository processed;
@@ -34,6 +36,20 @@ class CourierPersistenceTest {
         service.apply(completion, order, id, true);
         service.apply(UUID.randomUUID(), order, id, true);
         assertEquals(0, management.get(id).getActiveOrderCount());
+        assertEquals(2, management.get(id).getLoadVersion());
+        org.mockito.Mockito.verify(publisher, org.mockito.Mockito.times(4)).publish(
+                org.mockito.ArgumentMatchers.any(Courier.class), org.mockito.ArgumentMatchers.eq(order));
+    }
+
+    @Test void failedLoadPublicationRollsBackCounterAndEventLedger() {
+        UUID id = courier(2).getId(), order = UUID.randomUUID(), event = UUID.randomUUID();
+        org.mockito.Mockito.doThrow(new IllegalStateException("Broker down")).when(publisher)
+                .publish(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(order));
+        assertThrows(IllegalStateException.class, () -> service.apply(event, order, id, false));
+        assertEquals(0, management.get(id).getActiveOrderCount());
+        assertEquals(0, management.get(id).getLoadVersion());
+        assertFalse(processed.existsById(event));
+        assertFalse(loads.existsById(order));
     }
 
     @Test void completionBeforeAssignmentDoesNotConsumeAnotherOrdersLoad() {

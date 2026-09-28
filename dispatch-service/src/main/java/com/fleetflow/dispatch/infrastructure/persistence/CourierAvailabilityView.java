@@ -13,8 +13,7 @@ import java.util.UUID;
  * aggregate and carries no invariants of its own — the same reasoning §8 applies
  * explicitly to processed_events ("infrastructure concern, not a domain entity... does
  * not appear in the DDD pattern classification") applies here, so this lives in
- * infrastructure/persistence/ rather than domain/. Dispatch's real aggregate
- * (Assignment) is FR7/8 depth work, not this template.
+ * infrastructure/persistence/ rather than domain/. Assignment is the domain aggregate.
  */
 @Entity
 @Table(name = "courier_availability_view")
@@ -27,11 +26,33 @@ public class CourierAvailabilityView {
 
     private int capacity;
 
+    private int activeOrderCount;
+
+    private long loadVersion;
+
+    public int getActiveOrderCount() { return activeOrderCount; }
+    public long getLoadVersion() { return loadVersion; }
+
+    public void updateLoad(int activeOrderCount, int capacity, long version) {
+        if (activeOrderCount < 0 || capacity <= 0 || activeOrderCount > capacity || version < 0) {
+            throw new IllegalArgumentException("Invalid courier load");
+        }
+        if (version < loadVersion) return;
+        this.activeOrderCount = activeOrderCount;
+        this.capacity = capacity;
+        this.loadVersion = version;
+    }
+
     private String operatingZone;
 
     private boolean available;
 
     private Instant updatedAt;
+
+    // Registration time must not order events on the separate availability stream.
+    private Instant availabilityUpdatedAt;
+
+    public Instant getAvailabilityUpdatedAt() { return availabilityUpdatedAt; }
 
     // Nullable, unlike OpenOrderView's pickup/dropoff coordinates: an order's
     // coordinates always exist by construction, but a courier's location is
@@ -83,6 +104,7 @@ public class CourierAvailabilityView {
     public void markAvailability(boolean available, Instant updatedAt) {
         this.available = available;
         this.updatedAt = updatedAt;
+        this.availabilityUpdatedAt = updatedAt;
     }
 
     public Double getLatitude() {
