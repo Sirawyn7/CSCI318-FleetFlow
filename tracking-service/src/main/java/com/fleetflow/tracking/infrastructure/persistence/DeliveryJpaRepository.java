@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.UUID;
 
 public interface DeliveryJpaRepository extends JpaRepository<Delivery, UUID> {
+    java.util.List<Delivery> findByCourierId(UUID courierId);
 }

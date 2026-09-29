@@ -8,5 +8,5 @@ import java.util.UUID;
  * delivery's snapshot, before the material-change filter decides whether it's worth
  * publishing.
  */
-record EtaCandidate(UUID deliveryId, Instant estimatedArrival) {
+record EtaCandidate(UUID deliveryId, Instant estimatedArrival, Instant capturedAt) {
 }

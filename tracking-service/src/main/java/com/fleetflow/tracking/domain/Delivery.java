@@ -36,6 +36,8 @@ public class Delivery {
 
     private Instant startedAt;
 
+    private Instant requestedDeliveryBy;
+
     protected Delivery() {
         // JPA
     }
@@ -51,13 +53,24 @@ public class Delivery {
     }
 
     public static Delivery start(UUID orderId, UUID courierId, GeoCoordinate destination, double averageSpeedKmh) {
+        return start(orderId, courierId, destination, averageSpeedKmh, null);
+    }
+
+    public static Delivery start(UUID orderId, UUID courierId, GeoCoordinate destination,
+                                 double averageSpeedKmh, Instant requestedDeliveryBy) {
         if (orderId == null || courierId == null || destination == null) {
             throw new IllegalArgumentException("orderId, courierId and destination are required");
         }
-        if (averageSpeedKmh <= 0) {
+        if (!Double.isFinite(averageSpeedKmh) || averageSpeedKmh <= 0) {
             throw new IllegalArgumentException("averageSpeedKmh must be positive");
         }
-        return new Delivery(UUID.randomUUID(), orderId, courierId, destination, averageSpeedKmh, Instant.now());
+        Delivery delivery = new Delivery(UUID.randomUUID(), orderId, courierId, destination, averageSpeedKmh, Instant.now());
+        delivery.requestedDeliveryBy = requestedDeliveryBy;
+        return delivery;
+    }
+
+    public Instant getRequestedDeliveryBy() {
+        return requestedDeliveryBy;
     }
 
     public UUID getId() {

@@ -117,7 +117,7 @@ GPS Simulator posts pings to a **Fleet REST endpoint**; Fleet validates, updates
 
 Kafka Streams topology consumes `CourierLocationUpdated`, keys by active delivery, and recomputes estimated arrival. Material changes publish `DeliveryEtaUpdated`.
 
-**Calculation method (locked):** Haversine great-circle distance × configured average speed per vehicle type. **No external routing API.** Documented in the report as a deliberate scope decision — road-network routing adds an external dependency and network latency inside a stream topology for no additional marks.
+**Calculation method (locked):** Travel time = Haversine great-circle distance / configured average speed per vehicle type; ETA = GPS capture time + travel time. **No external routing API.** Documented in the report as a deliberate scope decision — road-network routing adds an external dependency and network latency inside a stream topology for no additional marks.
 
 **FR12 — Geofence arrival detection** **[STREAM]** → *O1, O4*
 
@@ -127,6 +127,8 @@ Stream processor evaluates each ping against the destination geofence radius; pu
 
 **FR13 — SLA breach and anomaly detection** **[STREAM]** → *O3*
 Windowed aggregation flags deliveries stationary beyond a threshold, deviating from expected progress, or trending toward a promised-time breach. Publishes `DeliveryAtRisk`.
+
+UC6 implementation and configurable threshold defaults are documented in [uc6-implementation.md](uc6-implementation.md). ADR 0013 records the accepted approach and its tradeoffs.
 
 ### UC7 — Complete Delivery and Record Proof *(Tracking Service)*
 

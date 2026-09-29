@@ -57,9 +57,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * a test at this level; a flaky run here more likely means "increase the wait", not a
  * bug in the topology itself.
  */
+@org.springframework.test.annotation.DirtiesContext
 @SpringBootTest
 @Testcontainers
 class Fr11EndToEndIntegrationTest {
+
+    private static final String RUN_ID = UUID.randomUUID().toString().substring(0, 8);
 
     @Container
     static final KafkaContainer KAFKA =
@@ -69,6 +72,7 @@ class Fr11EndToEndIntegrationTest {
     static void dynamicProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.cloud.stream.kafka.binder.brokers", KAFKA::getBootstrapServers);
         registry.add("spring.cloud.stream.kafka.streams.binder.brokers", KAFKA::getBootstrapServers);
+        registry.add("spring.cloud.stream.kafka.streams.binder.configuration.state.dir", () -> System.getProperty("java.io.tmpdir") + "/uc6-" + RUN_ID);
         registry.add("spring.datasource.url", () -> "jdbc:h2:mem:tracking-fr11-it;DB_CLOSE_DELAY=-1");
     }
 
@@ -94,6 +98,7 @@ class Fr11EndToEndIntegrationTest {
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "fr11-it-" + UUID.randomUUID());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
         etaConsumer = new KafkaConsumer<>(props);
