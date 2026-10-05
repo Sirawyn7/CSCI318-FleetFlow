@@ -47,7 +47,8 @@ public class GeofenceDetectionTopology {
     public BiFunction<KStream<String, CourierLocationUpdated>, KTable<String, ActiveDeliverySnapshot>,
             KStream<String, DeliveryNearDestination>> nearDestinationDetection() {
         return (locationPings, activeDeliveries) -> locationPings
-                .join(activeDeliveries, GeofenceDetectionTopology::computeCandidate)
+                .join(activeDeliveries.filter((key, snapshot) -> !snapshot.completed()),
+                        GeofenceDetectionTopology::computeCandidate)
                 .process(NearDestinationProcessor::new, NearDestinationProcessor.STORE_NAME);
     }
 
@@ -55,7 +56,8 @@ public class GeofenceDetectionTopology {
     public BiFunction<KStream<String, CourierLocationUpdated>, KTable<String, ActiveDeliverySnapshot>,
             KStream<String, DeliveryArrived>> arrivedDetection() {
         return (locationPings, activeDeliveries) -> locationPings
-                .join(activeDeliveries, GeofenceDetectionTopology::computeCandidate)
+                .join(activeDeliveries.filter((key, snapshot) -> !snapshot.completed()),
+                        GeofenceDetectionTopology::computeCandidate)
                 .process(ArrivedProcessor::new, ArrivedProcessor.STORE_NAME);
     }
 

@@ -32,6 +32,8 @@ spring:
         # --- Regular binder: bootstrap publishers ---
         deliveryStarted-out-0:
           destination: fleetflow.tracking.delivery-started
+        deliveryCompleted-out-0:
+          destination: fleetflow.tracking.delivery-completed
         activeDeliverySnapshot-out-0:
           # Internal materialization topic (see ActiveDeliverySnapshot's Javadoc) --
           # deliberately named outside the fleetflow.<context>.<event> catalogue
@@ -72,6 +74,9 @@ spring:
         # or IntelliJ's config metadata (correctly) flags it as unresolvable and Spring
         # silently ignores it at runtime instead of actually enabling a DLQ.
         bindings:
+          deliveryCompleted-out-0:
+            producer:
+              sync: true
           orderPlacedConsumer-in-0:
             consumer:
               enableDlq: true
@@ -83,6 +88,7 @@ spring:
               enableDlq: true
           activeDeliverySnapshot-out-0:
             producer:
+              sync: true
               configuration:
                 key.serializer: org.apache.kafka.common.serialization.StringSerializer
           # Test-only: Fr11EndToEndIntegrationTest publishes a keyed CourierLocationUpdated

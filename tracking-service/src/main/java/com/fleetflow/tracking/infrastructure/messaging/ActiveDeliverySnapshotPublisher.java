@@ -29,12 +29,14 @@ public class ActiveDeliverySnapshotPublisher {
                 delivery.getId(),
                 delivery.getDestination().latitude(),
                 delivery.getDestination().longitude(),
-                delivery.getAverageSpeedKmh());
+                delivery.getAverageSpeedKmh(), delivery.getCompletedAt() != null);
 
         Message<ActiveDeliverySnapshot> message = MessageBuilder.withPayload(snapshot)
                 .setHeader(KafkaHeaders.KEY, delivery.getCourierId().toString())
                 .build();
 
-        streamBridge.send(BINDING_NAME, message);
+        if (!streamBridge.send(BINDING_NAME, message)) {
+            throw new org.springframework.messaging.MessageDeliveryException("Active delivery snapshot publication failed");
+        }
     }
 }

@@ -197,3 +197,18 @@ without a broker on hand, given two real binder/YAML config bugs already surface
 getting FR11's simpler single-output topology working correctly.
 
 ---
+
+## 2026-10-05 — FR14 delivery completion and proof (Tenzin)
+**Prompt/context:** Asked the assistant to implement FR14 in Tracking Service,
+covering delivery completion, proof, REST access and `DeliveryCompleted` publication.
+**Proposed by agent:** Store a courier-supplied route summary, confirmation and
+completion timestamp on Delivery, with immutable proof and retry protection.
+**Decision:** Accepted option 1, as recorded in
+`docs/decisions/0013-FR14-completion-proof.md`.
+**Rationale:** See `docs/decisions/0013-FR14-completion-proof.md` for the reasoning
+and limitations of using textual proof instead of GPS-derived route history.
+**Prompt record:** `docs/prompts/0010-uc7-fr14-completion-proof.md`.
+**Authorship:** Entry drafted with AI assistance at Tenzin's request, summarising
+the existing accepted ADR.
+
+---

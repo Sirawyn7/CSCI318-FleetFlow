@@ -12,5 +12,9 @@ import java.util.UUID;
  * sense.
  */
 public record ActiveDeliverySnapshot(UUID deliveryId, double destinationLatitude, double destinationLongitude,
-                                     double averageSpeedKmh) {
+                                     double averageSpeedKmh, boolean completed) {
+    public ActiveDeliverySnapshot(UUID deliveryId, double destinationLatitude, double destinationLongitude,
+                                  double averageSpeedKmh) {
+        this(deliveryId, destinationLatitude, destinationLongitude, averageSpeedKmh, false);
+    }
 }

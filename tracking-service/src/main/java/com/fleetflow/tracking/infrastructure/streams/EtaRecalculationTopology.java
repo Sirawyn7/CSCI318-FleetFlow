@@ -44,7 +44,8 @@ public class EtaRecalculationTopology {
     public BiFunction<KStream<String, CourierLocationUpdated>, KTable<String, ActiveDeliverySnapshot>,
             KStream<String, DeliveryEtaUpdated>> etaRecalculation() {
         return (locationPings, activeDeliveries) -> locationPings
-                .join(activeDeliveries, EtaRecalculationTopology::computeCandidate)
+                .join(activeDeliveries.filter((key, snapshot) -> !snapshot.completed()),
+                        EtaRecalculationTopology::computeCandidate)
                 .process(EtaMaterialChangeProcessor::new, EtaMaterialChangeProcessor.STORE_NAME);
     }
 

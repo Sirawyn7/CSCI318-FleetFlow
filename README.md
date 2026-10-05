@@ -177,10 +177,10 @@ retry idempotency are not guaranteed by this transaction boundary.
 
 ## UC6 — Real-time ETA recalculation (FR11)
 
-Tracking runs on port 8084. FR13–FR14 (SLA/anomaly detection, delivery completion)
-remain out of scope for this slice.
+Tracking runs on port 8084. FR13 (SLA/anomaly detection) remains outside this slice;
+FR14 completion is described below.
 
-Tracking has no REST API of its own yet — this slice is entirely event-driven. On
+The FR11 slice is event-driven. On
 `OrderAssigned`, it looks up the order's destination (from a derived read model
 projected off `OrderPlaced`) and the courier's vehicle type (from a derived read model
 projected off `CourierRegistered`), creates a `Delivery`, and publishes
@@ -223,3 +223,58 @@ Run domain and application tests without Docker:
 ```text
 mvn -pl tracking-service -am test -Dtest=EtaCalculationServiceTest,DeliveryTest,DeliveryBootstrapServiceTest,GeofenceEvaluationServiceTest,ContractBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false
 ```
+
+## UC7 — Complete delivery and record proof (FR14)
+
+UC7 contains one functional requirement: FR14. Tracking stores the courier's route
+summary and textual receipt confirmation on the Delivery aggregate, alongside the
+existing start timestamp and a server-generated completion timestamp. The summary
+is courier supplied; it is not reconstructed from GPS points. No photo upload or
+signature storage is required for this slice.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/deliveries/{id}/complete` | Record completion and publish `DeliveryCompleted` |
+| GET | `/api/deliveries/{id}` | Read status, timestamps and proof |
+| GET | `/api/deliveries?orderId={orderId}` | Read delivery history for an order, oldest first |
+
+Find the delivery ID through the order history endpoint after assignment. Complete
+it on port 8084 using the assigned courier ID:
+
+```json
+{
+  "courierId": "<assigned-courier-uuid>",
+  "routeSummary": "Depot via Crown Street to customer drop-off",
+  "confirmation": "Received by Alex at reception"
+}
+```
+
+Text fields must contain 1–255 characters after trimming. Completion returns 200
+with `DELIVERED`, both timestamps and proof. Identical retries preserve the original
+proof and do not republish. Different proof or a mismatched courier returns 409;
+invalid input returns 400; a missing delivery returns 404. An unknown order's history
+is an empty list. The supplied courier ID is checked against the assignment, but
+this API does not authenticate a caller's identity.
+
+The row is locked for completion, so concurrent retries cannot both publish.
+Synchronous Kafka failures roll back local writes. Kafka and H2 are not an atomic
+transaction: a successful send followed by a database commit or second-send failure
+can still leave an event published, so this is not an exactly-once guarantee.
+The completed internal snapshot removes the delivery from ETA/geofence joins once
+the stream tables catch up. This retains FR11's existing one-snapshot-per-courier
+limitation; simultaneous deliveries for one courier need a separate topology change.
+
+Run Tracking tests without Docker:
+
+```text
+mvn -pl tracking-service -am test "-Dtest=!Fr*EndToEndIntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+Run the FR14 real Kafka integration test with Docker running:
+
+```text
+mvn -pl tracking-service -am test -Dtest=Fr14EndToEndIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+Existing rows remain in transit with null proof until completed. Schema updates add
+nullable columns; do not delete an existing Tracking database.
