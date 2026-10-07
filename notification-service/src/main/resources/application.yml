@@ -1,6 +1,5 @@
 server:
   port: 8085
-
 spring:
   application:
     name: notification-service
@@ -8,5 +7,62 @@ spring:
     url: jdbc:h2:file:./data/notificationdb
     driver-class-name: org.h2.Driver
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: update
+  cloud:
+    function:
+      definition: notifyAssigned;notifyStarted;notifyNearDestination;notifyCompleted;notifyAtRisk
+    stream:
+      bindings:
+        notifyAssigned-in-0:
+          destination: fleetflow.dispatch.order-assigned
+          group: notification-service
+        notifyStarted-in-0:
+          destination: fleetflow.tracking.delivery-started
+          group: notification-service
+        notifyNearDestination-in-0:
+          destination: fleetflow.tracking.delivery-near-destination
+          group: notification-service
+        notifyCompleted-in-0:
+          destination: fleetflow.tracking.delivery-completed
+          group: notification-service
+        notifyAtRisk-in-0:
+          destination: fleetflow.tracking.delivery-at-risk
+          group: notification-service
+        notificationSent-out-0:
+          destination: fleetflow.notification.notification-sent
+      kafka:
+        binder:
+          brokers: ${KAFKA_BROKERS:localhost:9092}
+        bindings:
+          notifyAssigned-in-0:
+            consumer:
+              enableDlq: true
+          notifyStarted-in-0:
+            consumer:
+              enableDlq: true
+          notifyNearDestination-in-0:
+            consumer:
+              enableDlq: true
+          notifyCompleted-in-0:
+            consumer:
+              enableDlq: true
+          notifyAtRisk-in-0:
+            consumer:
+              enableDlq: true
+          notificationSent-out-0:
+            producer:
+              sync: true
+notification:
+  services:
+    order-url: ${ORDER_SERVICE_URL:http://localhost:8081}
+    tracking-url: ${TRACKING_SERVICE_URL:http://localhost:8084}
+    # Proposed UC8 integration contract; implement/adapt when the Tracking branch is merged.
+    tracking-path: ${TRACKING_STATUS_PATH:/deliveries/order/{orderId}/status}
+  agent:
+    api-key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_MODEL:gemini-2.0-flash}
+  worker:
+    enabled: true
+    poll-ms: 5000
