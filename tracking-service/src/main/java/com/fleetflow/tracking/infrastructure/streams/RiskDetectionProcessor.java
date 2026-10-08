@@ -17,12 +17,15 @@ public class RiskDetectionProcessor implements Processor<String, DeliveryLocatio
     static final String WINDOW = "risk-observation-window";
     static final String LAST_PING = "risk-last-ping";
     static final String ARRIVED = "risk-arrived";
+    static final String ARRIVAL_COUNT = "risk-arrival-count";
+    static final long REQUIRED_ARRIVAL_PINGS = 3;
     static final String ALERTS = "risk-last-alert";
     private final RiskPolicy policy;
     private WindowStore<String, RiskObservation> observations;
     private KeyValueStore<String, Long> latest;
     private KeyValueStore<String, Long> alerts;
     private KeyValueStore<String, Long> arrived;
+    private KeyValueStore<String, Long> arrivalCount;
     private ProcessorContext<String, DeliveryAtRisk> context;
 
     public RiskDetectionProcessor(RiskPolicy policy) { this.policy = policy; }
@@ -34,6 +37,7 @@ public class RiskDetectionProcessor implements Processor<String, DeliveryLocatio
         latest = context.getStateStore(LAST_PING);
         alerts = context.getStateStore(ALERTS);
         arrived = context.getStateStore(ARRIVED);
+        arrivalCount = context.getStateStore(ARRIVAL_COUNT);
     }
 
     @Override
@@ -51,12 +55,17 @@ public class RiskDetectionProcessor implements Processor<String, DeliveryLocatio
         GeoCoordinate destination = new GeoCoordinate(delivery.destinationLatitude(), delivery.destinationLongitude());
         RiskObservation observation = new RiskObservation(ping.capturedAt(), current.latitude(), current.longitude(),
                 GeofenceEvaluationService.distanceMeters(current, destination));
-        // Latch arrival before the next ping: asynchronous snapshot cleanup may lag.
-        // This changelogged marker survives restart and old snapshot republication.
+        // Require consecutive fresh samples, not a single GPS jitter/pass-by.
+        // Both the candidate count and confirmed latch survive task restoration.
         if (GeofenceEvaluationService.isArrived(observation.distanceMeters())) {
-            arrived.put(key, time);
+            Long count = arrivalCount.get(key);
+            long next = count == null || previous == null
+                    || time - previous > policy.maximumPingGap().toMillis() ? 1 : count + 1;
+            arrivalCount.put(key, next);
+            if (next >= REQUIRED_ARRIVAL_PINGS) arrived.put(key, time);
             return;
         }
+        arrivalCount.put(key, 0L);
         observations.put(key, observation, time);
         var window = new ArrayList<RiskObservation>();
         try (var iterator = observations.fetch(key, ping.capturedAt().minus(policy.window()), ping.capturedAt())) {

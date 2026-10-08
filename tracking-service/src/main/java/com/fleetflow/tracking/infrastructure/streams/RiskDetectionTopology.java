@@ -53,6 +53,11 @@ public class RiskDetectionTopology {
     }
 
     @Bean
+    public StoreBuilder<KeyValueStore<String, Long>> riskArrivalCount() {
+        return Stores.keyValueStoreBuilder(Stores.persistentKeyValueStore(RiskDetectionProcessor.ARRIVAL_COUNT), Serdes.String(), Serdes.Long());
+    }
+
+    @Bean
     public StoreBuilder<KeyValueStore<String, Long>> riskLastAlert() {
         return Stores.keyValueStoreBuilder(Stores.persistentKeyValueStore(RiskDetectionProcessor.ALERTS), Serdes.String(), Serdes.Long());
     }
@@ -63,6 +68,7 @@ public class RiskDetectionTopology {
         return (pings, deliveries) -> pings.join(deliveries, DeliveryLocation::join)
                 .flatMapValues(values -> values)
                 .process(() -> new RiskDetectionProcessor(policy), RiskDetectionProcessor.WINDOW,
-                        RiskDetectionProcessor.LAST_PING, RiskDetectionProcessor.ALERTS, RiskDetectionProcessor.ARRIVED);
+                        RiskDetectionProcessor.LAST_PING, RiskDetectionProcessor.ALERTS, RiskDetectionProcessor.ARRIVED,
+                        RiskDetectionProcessor.ARRIVAL_COUNT);
     }
 }

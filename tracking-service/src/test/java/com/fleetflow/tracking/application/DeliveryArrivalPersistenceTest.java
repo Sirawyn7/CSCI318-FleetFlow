@@ -55,8 +55,8 @@ class DeliveryArrivalPersistenceTest {
             verify(bridge, times(2)).send(eq("activeDeliverySnapshot-out-0"), any());
         } finally {
             transaction.executeWithoutResult(status -> {
-                deliveries.deleteAll(deliveries.findByCourierId(first));
-                deliveries.deleteAll(deliveries.findByCourierId(second));
+                deliveries.deleteAll(deliveries.findAllIncludingArrivedByCourierId(first));
+                deliveries.deleteAll(deliveries.findAllIncludingArrivedByCourierId(second));
                 couriers.deleteById(first);
                 couriers.deleteById(second);
             });

@@ -28,6 +28,7 @@ class RiskDetectionProcessorTest {
         when(context.getStateStore(RiskDetectionProcessor.LAST_PING)).thenReturn(latest);
         when(context.getStateStore(RiskDetectionProcessor.ALERTS)).thenReturn(alerts);
         when(context.getStateStore(RiskDetectionProcessor.ARRIVED)).thenReturn(arrived);
+        doReturn(mapStore()).when(context).getStateStore(RiskDetectionProcessor.ARRIVAL_COUNT);
         when(observations.fetch(anyString(), any(Instant.class), any(Instant.class))).thenAnswer(call -> {
             WindowStoreIterator<RiskObservation> iterator = mock(WindowStoreIterator.class);
             var sample = new RiskObservation(call.getArgument(2), -33.8, 151.2, 11000);
@@ -43,7 +44,13 @@ class RiskDetectionProcessorTest {
         var processor = new RiskDetectionProcessor(policy);
         processor.init(context);
         processor.process(ping(oldDelivery, start.plusSeconds(1), -33.9)); // at destination
-        verify(arrived).put(oldDelivery.deliveryId().toString(), start.plusSeconds(1).toEpochMilli());
+        processor.process(ping(oldDelivery, start.plusSeconds(2), -33.9));
+        verify(arrived, never()).put(anyString(), anyLong());
+        // Candidate count also survives restart before confirmation.
+        processor = new RiskDetectionProcessor(policy);
+        processor.init(context);
+        processor.process(ping(oldDelivery, start.plusSeconds(3), -33.9));
+        verify(arrived).put(oldDelivery.deliveryId().toString(), start.plusSeconds(3).toEpochMilli());
         // Re-created processor receives the restored stores, as on a task restart.
         processor = new RiskDetectionProcessor(policy);
         processor.init(context);
@@ -56,6 +63,48 @@ class RiskDetectionProcessorTest {
         processor.process(ping(nextDelivery, start.plusSeconds(1600), -33.8));
         verify(context).forward(argThat(record -> record.value().deliveryId().equals(nextDelivery.deliveryId())
                 && record.value().riskReason().equals("SLA_BREACH")));
+    }
+
+    @SuppressWarnings("unchecked")
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void interruptedArrivalSequenceDoesNotLatchAndRiskResumes(boolean excessiveGap) {
+        ProcessorContext<String, DeliveryAtRisk> context = mock(ProcessorContext.class);
+        WindowStore<String, RiskObservation> observations = mock(WindowStore.class);
+        KeyValueStore<String, Long> arrived = mapStore();
+        when(context.getStateStore(RiskDetectionProcessor.WINDOW)).thenReturn(observations);
+        doReturn(mapStore()).when(context).getStateStore(RiskDetectionProcessor.LAST_PING);
+        doReturn(mapStore()).when(context).getStateStore(RiskDetectionProcessor.ALERTS);
+        when(context.getStateStore(RiskDetectionProcessor.ARRIVED)).thenReturn(arrived);
+        doReturn(mapStore()).when(context).getStateStore(RiskDetectionProcessor.ARRIVAL_COUNT);
+        when(observations.fetch(anyString(), any(Instant.class), any(Instant.class))).thenAnswer(call -> {
+            WindowStoreIterator<RiskObservation> iterator = mock(WindowStoreIterator.class);
+            var sample = new RiskObservation(call.getArgument(2), -33.8, 151.2, 11000);
+            when(iterator.hasNext()).thenReturn(true, false);
+            when(iterator.next()).thenReturn(KeyValue.pair(sample.capturedAt().toEpochMilli(), sample));
+            return iterator;
+        });
+        var policy = new RiskPolicy(Duration.ofMinutes(10), Duration.ofMinutes(5), Duration.ofMinutes(2),
+                30, 0.1, Duration.ofMinutes(10));
+        Instant start = Instant.parse("2026-10-08T00:00:00Z");
+        var delivery = snapshot(UUID.randomUUID(), start);
+        var processor = new RiskDetectionProcessor(policy);
+        processor.init(context);
+        processor.process(ping(delivery, start.plusSeconds(1), -33.9));
+        processor.process(ping(delivery, start.plusSeconds(1), -33.9)); // duplicate cannot count
+        processor.process(ping(delivery, start, -33.9)); // stale cannot count
+        verify(arrived, never()).put(anyString(), anyLong());
+        int resume = excessiveGap ? 123 : 3;
+        if (!excessiveGap) processor.process(ping(delivery, start.plusSeconds(2), -33.8));
+        processor.process(ping(delivery, start.plusSeconds(resume), -33.9));
+        processor.process(ping(delivery, start.plusSeconds(resume + 1), -33.9));
+        verify(arrived, never()).put(anyString(), anyLong());
+        processor.process(ping(delivery, start.plusSeconds(resume + 2), -33.8));
+        verify(context).forward(argThat(record -> record.value().riskReason().equals("SLA_BREACH")));
+        // A later uninterrupted sequence still confirms arrival.
+        for (int offset = 3; offset <= 5; offset++)
+            processor.process(ping(delivery, start.plusSeconds(resume + offset), -33.9));
+        verify(arrived).put(delivery.deliveryId().toString(), start.plusSeconds(resume + 5).toEpochMilli());
     }
 
     private static ActiveDeliverySnapshot snapshot(UUID courier, Instant start) {

@@ -10,6 +10,8 @@ public final class RiskEvaluationService {
                                         Instant promisedBy, RiskPolicy policy) {
         if (observations.isEmpty()) return List.of();
         RiskObservation latest = observations.getLast();
+        // Defensive invariant: RiskDetectionProcessor excludes within-radius samples
+        // (including unconfirmed arrival candidates) before invoking this service.
         if (GeofenceEvaluationService.isArrived(latest.distanceMeters())) return List.of();
         List<String> reasons = new ArrayList<>();
         Instant eta = latest.capturedAt().plusSeconds(Math.round(latest.distanceMeters() / (speedKmh / 3.6)));
