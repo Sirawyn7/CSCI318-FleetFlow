@@ -16,11 +16,13 @@ import java.util.UUID;
 public class RiskDetectionProcessor implements Processor<String, DeliveryLocation, String, DeliveryAtRisk> {
     static final String WINDOW = "risk-observation-window";
     static final String LAST_PING = "risk-last-ping";
+    static final String ARRIVED = "risk-arrived";
     static final String ALERTS = "risk-last-alert";
     private final RiskPolicy policy;
     private WindowStore<String, RiskObservation> observations;
     private KeyValueStore<String, Long> latest;
     private KeyValueStore<String, Long> alerts;
+    private KeyValueStore<String, Long> arrived;
     private ProcessorContext<String, DeliveryAtRisk> context;
 
     public RiskDetectionProcessor(RiskPolicy policy) { this.policy = policy; }
@@ -31,6 +33,7 @@ public class RiskDetectionProcessor implements Processor<String, DeliveryLocatio
         observations = context.getStateStore(WINDOW);
         latest = context.getStateStore(LAST_PING);
         alerts = context.getStateStore(ALERTS);
+        arrived = context.getStateStore(ARRIVED);
     }
 
     @Override
@@ -39,6 +42,7 @@ public class RiskDetectionProcessor implements Processor<String, DeliveryLocatio
         var delivery = input.delivery();
         var ping = input.location();
         String key = delivery.deliveryId().toString();
+        if (arrived.get(key) != null) return;
         long time = ping.capturedAt().toEpochMilli();
         Long previous = latest.get(key);
         if (previous != null && time <= previous) return;
@@ -47,6 +51,12 @@ public class RiskDetectionProcessor implements Processor<String, DeliveryLocatio
         GeoCoordinate destination = new GeoCoordinate(delivery.destinationLatitude(), delivery.destinationLongitude());
         RiskObservation observation = new RiskObservation(ping.capturedAt(), current.latitude(), current.longitude(),
                 GeofenceEvaluationService.distanceMeters(current, destination));
+        // Latch arrival before the next ping: asynchronous snapshot cleanup may lag.
+        // This changelogged marker survives restart and old snapshot republication.
+        if (GeofenceEvaluationService.isArrived(observation.distanceMeters())) {
+            arrived.put(key, time);
+            return;
+        }
         observations.put(key, observation, time);
         var window = new ArrayList<RiskObservation>();
         try (var iterator = observations.fetch(key, ping.capturedAt().minus(policy.window()), ping.capturedAt())) {

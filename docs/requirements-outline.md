@@ -128,7 +128,7 @@ Stream processor evaluates each ping against the destination geofence radius; pu
 **FR13 — SLA breach and anomaly detection** **[STREAM]** → *O3*
 Windowed aggregation flags deliveries stationary beyond a threshold, deviating from expected progress, or trending toward a promised-time breach. Publishes `DeliveryAtRisk`.
 
-UC6 implementation and configurable threshold defaults are documented in [uc6-implementation.md](uc6-implementation.md). ADR 0013 records the accepted approach and its tradeoffs.
+UC6 implementation, configurable thresholds and review status are recorded in [ADR 0013](decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md).
 
 ### UC7 — Complete Delivery and Record Proof *(Tracking Service)*
 
@@ -196,7 +196,7 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | `DeliveryStarted` | Tracking | Order *(inferred — FR2 status)*, Notification *(documented — FR15, "in transit")* |
 | `DeliveryEtaUpdated` | Tracking | Notification *(inferred)* |
 | `DeliveryNearDestination` | Tracking | Notification *(documented — FR15)* |
-| `DeliveryArrived` | Tracking | Notification *(inferred)* |
+| `DeliveryArrived` | Tracking | Tracking *(internal arrival persistence/snapshot cleanup — ADR 0013)*, Notification *(inferred)* |
 | `DeliveryAtRisk` | Tracking | Dispatch *(documented — FR9)*, Notification *(documented — FR15)* |
 | `DeliveryCompleted` | Tracking | Order *(inferred — FR2)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)* |
 | `NotificationSent` | Notification | none — terminal, audit-only. Worth confirming this is wanted at all rather than assumed. |

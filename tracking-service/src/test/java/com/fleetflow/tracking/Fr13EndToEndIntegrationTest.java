@@ -140,6 +140,7 @@ public class Fr13EndToEndIntegrationTest {
             sendPing(courier, time, -33.8);
             for (var record : riskConsumer.poll(Duration.ofMillis(500))) {
                 DeliveryAtRisk event = objectMapper.readValue(record.value(), DeliveryAtRisk.class);
+                if (!event.courierId().equals(courier)) continue;
                 assertEquals("SLA_BREACH", event.riskReason());
                 assertTrue(orders.contains(event.orderId()));
                 assertEquals(courier, event.courierId());
@@ -150,18 +151,74 @@ public class Fr13EndToEndIntegrationTest {
         assertEquals(deliveries, slaSeen);
         Instant baseline = time;
         for (int i = 1; i <= 5; i++) sendPing(courier, baseline.plusSeconds(i * 60), -33.8);
-        assertEquals(deliveries, awaitRisk("STATIONARY"));
+        assertEquals(deliveries, awaitRisk("STATIONARY", courier));
         // Beyond the rolling window: moving away from the destination produces OFF_PACE.
         baseline = baseline.plusSeconds(1200);
         for (int i = 0; i <= 5; i++) sendPing(courier, baseline.plusSeconds(i * 60), -33.8 + i * 0.001);
-        assertEquals(deliveries, awaitRisk("OFF_PACE"));
+        assertEquals(deliveries, awaitRisk("OFF_PACE", courier));
         sendPing(courier, baseline.plusSeconds(300), -33.795); // duplicate timestamp
         sendPing(courier, baseline, -33.8); // stale
         sendPing(courier, baseline.plusSeconds(301), -33.795); // cooldown
         sendPing(UUID.randomUUID(), baseline.plusSeconds(302), -33.8); // no assignment
         long quietDeadline = System.currentTimeMillis() + 2500;
-        while (System.currentTimeMillis() < quietDeadline)
-            assertTrue(riskConsumer.poll(Duration.ofMillis(250)).isEmpty());
+        while (System.currentTimeMillis() < quietDeadline) {
+            for (var record : riskConsumer.poll(Duration.ofMillis(250)))
+                assertTrue(!objectMapper.readValue(record.value(), DeliveryAtRisk.class).courierId().equals(courier));
+        }
+    }
+
+    @Test
+    void arrivalRemovesOldDeliveryAndNewAssignmentDoesNotResurrectRisk() throws Exception {
+        UUID courier = UUID.randomUUID(), order = UUID.randomUUID();
+        streamBridge.send(Topics.COURIER_REGISTERED, new CourierRegistered(
+                newEnvelope("CourierRegistered"), courier, "VAN", 20, "ZONE_A"));
+        awaitVehicleTypeProjected(courier);
+        streamBridge.send(Topics.ORDER_PLACED, new OrderPlaced(newEnvelope("OrderPlaced"), order,
+                UUID.randomUUID(), new GeoPoint(-33.8, 151.2), new GeoPoint(-33.9, 151.2),
+                "STANDARD", Instant.now().minusSeconds(60)));
+        awaitDestinationProjected(order);
+        streamBridge.send(Topics.ORDER_ASSIGNED, new OrderAssigned(newEnvelope("OrderAssigned"), order,
+                courier, UUID.randomUUID()));
+        UUID oldDelivery = awaitDeliveryBootstrapped(order);
+        Instant time = Instant.now();
+        long deadline = System.currentTimeMillis() + 45000;
+        while (deliveryRepository.findById(oldDelivery).orElseThrow().getArrivedAt() == null
+                && System.currentTimeMillis() < deadline) {
+            time = time.plusSeconds(1);
+            sendPing(courier, time, -33.9);
+            Thread.sleep(200);
+        }
+        assertTrue(deliveryRepository.findById(oldDelivery).orElseThrow().getArrivedAt() != null);
+        UUID nextOrder = UUID.randomUUID();
+        streamBridge.send(Topics.ORDER_PLACED, new OrderPlaced(newEnvelope("OrderPlaced"), nextOrder,
+                UUID.randomUUID(), new GeoPoint(-33.8, 151.2), new GeoPoint(-34.0, 151.2),
+                "STANDARD", Instant.now().minusSeconds(60)));
+        awaitDestinationProjected(nextOrder);
+        streamBridge.send(Topics.ORDER_ASSIGNED, new OrderAssigned(newEnvelope("OrderAssigned"), nextOrder,
+                courier, UUID.randomUUID()));
+        UUID nextDelivery = awaitDeliveryBootstrapped(nextOrder);
+        boolean seenNext = false;
+        deadline = System.currentTimeMillis() + 45000;
+        time = time.plusSeconds(1200); // beyond cooldown and window
+        while (!seenNext && System.currentTimeMillis() < deadline) {
+            time = time.plusSeconds(1);
+            sendPing(courier, time, -33.8);
+            for (var record : riskConsumer.poll(Duration.ofMillis(500))) {
+                var event = objectMapper.readValue(record.value(), DeliveryAtRisk.class);
+                if (!event.courierId().equals(courier)) continue;
+                assertEquals(nextDelivery, event.deliveryId());
+                seenNext = true;
+            }
+        }
+        assertTrue(seenNext, "The new assignment must still produce risk alerts");
+        for (int minute = 1; minute <= 6; minute++) sendPing(courier, time.plusSeconds(minute * 60), -33.8);
+        long quietDeadline = System.currentTimeMillis() + 3000;
+        while (System.currentTimeMillis() < quietDeadline) {
+            for (var record : riskConsumer.poll(Duration.ofMillis(250))) {
+                var event = objectMapper.readValue(record.value(), DeliveryAtRisk.class);
+                if (event.courierId().equals(courier)) assertEquals(nextDelivery, event.deliveryId());
+            }
+        }
     }
 
     private void sendPing(UUID courier, Instant capturedAt, double latitude) {
@@ -171,13 +228,13 @@ public class Fr13EndToEndIntegrationTest {
                 .setHeader(KafkaHeaders.KEY,courier.toString()).build());
     }
 
-    private Set<UUID> awaitRisk(String reason) throws Exception {
+    private Set<UUID> awaitRisk(String reason, UUID courier) throws Exception {
         Set<UUID> ids = new HashSet<>();
         long deadline = System.currentTimeMillis() + 30000;
         while (ids.size() < 2 && System.currentTimeMillis() < deadline) {
             for (var record : riskConsumer.poll(Duration.ofMillis(500))) {
                 var event = objectMapper.readValue(record.value(),DeliveryAtRisk.class);
-                if (event.riskReason().equals(reason)) ids.add(event.deliveryId());
+                if (event.courierId().equals(courier) && event.riskReason().equals(reason)) ids.add(event.deliveryId());
             }
         }
         return ids;

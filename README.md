@@ -220,6 +220,6 @@ Run unit/regression tests without Docker:
 mvn -pl tracking-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-See [UC6 implementation and human-writing handoff](docs/uc6-implementation.md),
+See [UC6 design and review status](docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md),
 [proposed ADR 0013](docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md), and
 [the meaningful prompt record](docs/prompts/0010-uc6-completion-and-review.md).

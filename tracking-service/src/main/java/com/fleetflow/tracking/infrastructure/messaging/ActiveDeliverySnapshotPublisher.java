@@ -28,14 +28,19 @@ public class ActiveDeliverySnapshotPublisher {
     }
 
     public void publish(Delivery delivery) {
+        publish(delivery.getCourierId());
+    }
+
+    /** An empty list clears the courier's materialized snapshot after the final arrival. */
+    public void publish(java.util.UUID courierId) {
         CourierDeliveriesSnapshot snapshot = new CourierDeliveriesSnapshot(
-                deliveries.findByCourierId(delivery.getCourierId()).stream().map(d -> new ActiveDeliverySnapshot(
+                deliveries.findByCourierIdAndArrivedAtIsNull(courierId).stream().map(d -> new ActiveDeliverySnapshot(
                         d.getId(), d.getDestination().latitude(), d.getDestination().longitude(),
                         d.getAverageSpeedKmh(), d.getOrderId(), d.getCourierId(),
                         d.getRequestedDeliveryBy(), d.getStartedAt())).toList());
 
         Message<CourierDeliveriesSnapshot> message = MessageBuilder.withPayload(snapshot)
-                .setHeader(KafkaHeaders.KEY, delivery.getCourierId().toString())
+                .setHeader(KafkaHeaders.KEY, courierId.toString())
                 .build();
 
         if (!streamBridge.send(BINDING_NAME, message)) {

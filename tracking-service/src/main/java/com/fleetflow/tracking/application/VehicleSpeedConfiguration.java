@@ -9,7 +9,8 @@ public class VehicleSpeedConfiguration {
     private final Environment environment;
     public VehicleSpeedConfiguration(Environment environment) { this.environment = environment; }
     public double kmhFor(String vehicleType) {
-        return environment.getProperty("tracking.eta.speed-kmh." + vehicleType.toLowerCase(java.util.Locale.ROOT),
-                Double.class, VehicleAverageSpeed.kmhFor(vehicleType));
+        Double configured = environment.getProperty("tracking.eta.speed-kmh." + vehicleType.toLowerCase(java.util.Locale.ROOT),
+                Double.class);
+        return configured != null ? configured : VehicleAverageSpeed.kmhFor(vehicleType);
     }
 }

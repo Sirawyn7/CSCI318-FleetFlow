@@ -13,6 +13,7 @@ public final class RiskEvaluationService {
         if (GeofenceEvaluationService.isArrived(latest.distanceMeters())) return List.of();
         List<String> reasons = new ArrayList<>();
         Instant eta = latest.capturedAt().plusSeconds(Math.round(latest.distanceMeters() / (speedKmh / 3.6)));
+        // SLA needs no minimum window; equality is on time and a missing promise disables only this rule.
         if (promisedBy != null && eta.isAfter(promisedBy)) reasons.add("SLA_BREACH");
         RiskObservation first = observations.getFirst();
         Duration span = Duration.between(first.capturedAt(), latest.capturedAt());

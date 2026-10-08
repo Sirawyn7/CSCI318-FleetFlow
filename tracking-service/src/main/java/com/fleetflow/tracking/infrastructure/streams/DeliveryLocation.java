@@ -7,7 +7,7 @@ import java.util.List;
 record DeliveryLocation(CourierLocationUpdated location, ActiveDeliverySnapshot delivery) {
     static List<DeliveryLocation> join(CourierLocationUpdated location, CourierDeliveriesSnapshot snapshot) {
         return snapshot.deliveries().stream()
-                .filter(d -> d.startedAt() == null || !location.capturedAt().isBefore(d.startedAt()))
+                .filter(d -> !location.capturedAt().isBefore(d.startedAt()))
                 .map(d -> new DeliveryLocation(location, d)).toList();
     }
 }

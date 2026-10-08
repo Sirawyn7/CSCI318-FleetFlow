@@ -34,4 +34,4 @@ FR11 and FR12 already had implementations when this request was made; FR13 was m
 FR11 and FR12 already have implementations and tests; FR13 is missing. I also found two gaps that affect monitoring: ETA uses processing time instead of the GPS timestamp, and the current snapshot holds only one delivery per courier. I’ll correct those while adding windowed risk detection, and keep human acceptance/rationale fields clearly marked for you to complete.
 ```
 
-Human acceptance and rationale belong in ADR 0013 and the collaboration log. See `docs/uc6-implementation.md` for the handoff.
+Human acceptance and rationale belong in ADR 0013 and the collaboration log. See ADR 0013’s Decision section for the outstanding human review.

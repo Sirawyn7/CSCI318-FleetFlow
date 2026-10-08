@@ -38,6 +38,18 @@ public class Delivery {
 
     private Instant requestedDeliveryBy;
 
+    private Instant arrivedAt;
+
+    /** Arrival ends monitoring; proof of completion remains the separate FR14 concern. */
+    public void arrive(Instant at) {
+        if (at == null || at.isBefore(startedAt)) {
+            throw new IllegalArgumentException("Arrival must be at or after delivery start");
+        }
+        if (arrivedAt == null) arrivedAt = at;
+    }
+
+    public Instant getArrivedAt() { return arrivedAt; }
+
     protected Delivery() {
         // JPA
     }

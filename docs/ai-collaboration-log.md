@@ -211,3 +211,11 @@ and 3 real-Kafka integration tests.
 **Decision:** Accepted 
 **Rationale:** This adds risk detection without changing the existing ETA and geofence setup. I also changed the tracking so a courier can have multiple deliveries instead of just one. The observation window and cooldown are there to avoid sending alerts too early or repeatedly. The thresholds can still be adjusted later if needed after more testing. ADR 0013 covers the other options considered and the current limitations.
 ---
+
+## 2026-10-08 — ADR 0013 review follow-up (Tenzin)
+**Prompt/context:** Addressed the PR review of UC6 and the conflicting ADR review status. See `docs/prompts/0011-uc6-review-corrections.md`.
+**Decision:** Accepted option 1, as explicitly confirmed by Tenzin in this session.
+**Rationale:** See the Decision section of `docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md` for Tenzin’s explanation.
+**AI assistance:** The assistant proposed draft wording and suggested spelling and terminology corrections; Tenzin supplied the final acceptance and revised paragraph. This records the confirmation on 2026-10-08 and does not establish when the earlier ADR review occurred.
+
+---
