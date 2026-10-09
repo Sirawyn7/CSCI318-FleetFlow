@@ -168,5 +168,5 @@ agent_conversation_turns, processed_events, and delivery_order_links. The last t
 are infrastructure ledgers/projections, not domain entities. Cross-context references
 are IDs only; no foreign keys or queries into another service's database exist.
 NotificationKind is the immutable domain vocabulary for lifecycle templates.
-See [ADR 0013](../docs/decisions/0013-uc8-isolated-notification-integration.md) for the
+See [ADR 0015](../docs/decisions/0015-uc8-isolated-notification-integration.md) for the
 inbox/outbox and deferred integration choices.

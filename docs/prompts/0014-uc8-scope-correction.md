@@ -1,7 +1,7 @@
-# Prompt 0010 — UC8 Notification Service implementation
+# Prompt 0014 — UC8 Notification Service implementation
 
 **Date:** 2026-10-07
-**Used for:** UC8 (FR15–FR16), [ADR 0013](../decisions/0013-uc8-isolated-notification-integration.md), and report Section 5.
+**Used for:** UC8 (FR15–FR16), [ADR 0015](../decisions/0015-uc8-isolated-notification-integration.md), and report Section 5.
 **Why this one's worth citing:** The user corrected the assistant's scope to keep UC8 separate from other services being developed on different branches.
 
 ## Decision
