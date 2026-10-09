@@ -45,6 +45,23 @@ class GeminiStatusExplainerTest {
         };
         assertThrows(IllegalStateException.class, () -> new GeminiStatusExplainer(model).explain("Status?", "", context()));
     }
+    @Test void orderNotFoundFromAToolIsReturnedToTheModelRatherThanTheCaller() {
+        when(data.order(order)).thenThrow(new DeliveryDataPort.OrderNotFound());
+        when(data.tracking(order)).thenReturn(new DeliveryData.Tracking(order, Instant.now(),
+                List.of("Stationary"), Instant.now()));
+        ChatModel model = new ChatModel() {
+            int calls;
+            @Override public ChatResponse doChat(ChatRequest request) {
+                if (calls++ == 0) return response(AiMessage.from(tool("orderState"), tool("trackingState")));
+                assertTrue(request.messages().stream().filter(ToolExecutionResultMessage.class::isInstance)
+                        .map(ToolExecutionResultMessage.class::cast)
+                        .anyMatch(result -> result.text().contains("OrderNotFound")));
+                return response(AiMessage.from("The order is unavailable."));
+            }
+        };
+        assertEquals("The order is unavailable.",
+                new GeminiStatusExplainer(model).explain("Status?", "", new StatusContext(data, order)));
+    }
     @Test void repeatedToolCallsAreBoundedAndRestReadsAreCached() {
         ChatModel model = new ChatModel() {
             @Override public ChatResponse doChat(ChatRequest request) {

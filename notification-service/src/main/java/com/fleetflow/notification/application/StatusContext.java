@@ -9,8 +9,15 @@ public final class StatusContext {
     private final UUID orderId;
     private OrderFacts order;
     private TrackingFacts tracking;
-    public StatusContext(DeliveryDataPort data, UUID orderId) { this.data = data; this.orderId = orderId; }
+    private boolean orderRead;
+    public StatusContext(DeliveryDataPort data, UUID orderId) {
+        this(data, orderId, null);
+    }
+    public StatusContext(DeliveryDataPort data, UUID orderId, OrderFacts order) {
+        this.data = data; this.orderId = orderId; this.order = order;
+    }
     public OrderFacts order() {
+        orderRead = true;
         if (order == null) {
             try {
                 var value = data.order(orderId);
@@ -28,7 +35,7 @@ public final class StatusContext {
         }
         return tracking;
     }
-    public boolean bothRead() { return order != null && tracking != null; }
+    public boolean bothRead() { return orderRead && tracking != null; }
     public String fallback() {
         var o = order(); var t = tracking();
         String status = o.available() ? "Order reports status: " + o.status() + "." : "Order status is currently unavailable.";

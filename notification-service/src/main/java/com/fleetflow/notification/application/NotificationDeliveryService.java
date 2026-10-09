@@ -1,8 +1,14 @@
 package com.fleetflow.notification.application;
 
 import com.fleetflow.notification.infrastructure.persistence.*;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+
 import java.util.UUID;
 
 @Service
@@ -12,14 +18,18 @@ public class NotificationDeliveryService {
     private final NotificationTemplateRepository templates;
     private final DeliveryDataPort data;
     private final NotificationAuditPort audit;
+    private final TransactionTemplate writeTransaction;
     public NotificationDeliveryService(NotificationRepository notifications, DeliveryOrderLinkRepository links,
-            NotificationTemplateRepository templates, DeliveryDataPort data, NotificationAuditPort audit) {
+            NotificationTemplateRepository templates, DeliveryDataPort data, NotificationAuditPort audit,
+            PlatformTransactionManager transactionManager) {
         this.notifications = notifications; this.links = links; this.templates = templates;
         this.data = data; this.audit = audit;
+        writeTransaction = new TransactionTemplate(transactionManager);
+        writeTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void deliver(UUID id) {
-        var n = notifications.lockById(id).orElseThrow();
+        var n = notifications.findById(id).orElseThrow();
         if (n.getSentAt() != null) return;
         UUID orderId = n.getOrderId();
         if (orderId == null) orderId = links.findById(n.getDeliveryId()).map(DeliveryOrderLink::getOrderId).orElse(null);
@@ -28,15 +38,31 @@ public class NotificationDeliveryService {
         var order = data.order(orderId);
         if (order == null || !orderId.equals(order.id()) || order.customerId() == null)
             throw new DeliveryDataPort.Unavailable("Order");
-        var template = templates.findById(n.getKind()).orElseGet(() -> templates.save(new NotificationTemplate(n.getKind())));
-        n.deliver(orderId, order.customerId(), template.render(orderId, n.getReason()));
+        UUID finalOrderId = orderId;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                writeTransaction.executeWithoutResult(status -> {
+                    var current = notifications.lockById(id).orElseThrow();
+                    if (current.getSentAt() != null) return;
+                    var template = templates.findById(current.getKind())
+                            .orElseGet(() -> templates.saveAndFlush(new NotificationTemplate(current.getKind())));
+                    current.deliver(finalOrderId, order.customerId(),
+                            template.render(finalOrderId, current.getReason()));
+                });
+                return;
+            } catch (DataIntegrityViolationException conflict) {
+                if (attempt == 1) throw conflict;
+            }
+        }
     }
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void publishAudit(UUID id) {
-        var n = notifications.lockById(id).orElseThrow();
+        var n = notifications.findById(id).orElseThrow();
         if (n.getSentAt() == null || n.isAuditPublished()) return;
-        // Inbox was committed in a previous transaction. Audit is at-least-once with a stable ID.
         audit.publish(n);
-        n.markAuditPublished();
+        writeTransaction.executeWithoutResult(status -> {
+            var current = notifications.lockById(id).orElseThrow();
+            if (current.getSentAt() != null && !current.isAuditPublished()) current.markAuditPublished();
+        });
     }
 }

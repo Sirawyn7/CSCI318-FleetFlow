@@ -6,6 +6,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import java.time.Instant;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -13,16 +18,26 @@ import static org.mockito.Mockito.*;
 
 @DataJpaTest
 @Import(ExplanationService.class)
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 class ExplanationServiceTest {
     @Autowired ExplanationService service;
     @Autowired AgentConversationRepository conversations;
+    @Autowired PlatformTransactionManager transactionManager;
     @MockitoBean DeliveryDataPort data;
     @MockitoBean StatusExplainerPort explainer;
     private final UUID order = UUID.randomUUID();
     @BeforeEach void setup() {
-        when(data.order(order)).thenReturn(new DeliveryData.Order(order, UUID.randomUUID(), "IN_TRANSIT", Instant.now()));
-        when(data.tracking(order)).thenReturn(new DeliveryData.Tracking(order, Instant.now(), List.of("Stationary"), Instant.now()));
+        conversations.deleteAll();
+        when(data.order(order)).thenAnswer(call -> {
+            assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
+            return new DeliveryData.Order(order, UUID.randomUUID(), "IN_TRANSIT", Instant.now());
+        });
+        when(data.tracking(order)).thenAnswer(call -> {
+            assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
+            return new DeliveryData.Tracking(order, Instant.now(), List.of("Stationary"), Instant.now());
+        });
         when(explainer.explain(anyString(), anyString(), any())).thenAnswer(call -> {
+            assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
             StatusContext context = call.getArgument(2); context.order(); context.tracking();
             return "Tracking reports the courier is stationary.";
         });
@@ -34,7 +49,16 @@ class ExplanationServiceTest {
         assertEquals(first.conversationId(), second.conversationId());
         verify(explainer).explain(eq("What is the ETA?"), contains("Why is it late?"), any());
         verify(data, times(2)).order(order); verify(data, times(2)).tracking(order);
-        assertEquals(2, conversations.findById(first.conversationId()).orElseThrow().getTurns().size());
+        int turnCount = new TransactionTemplate(transactionManager).execute(status ->
+                conversations.findById(first.conversationId()).orElseThrow().getTurns().size());
+        assertEquals(2, turnCount);
+    }
+    @Test void remoteExplanationSuspendsAnAmbientTransaction() {
+        var result = new TransactionTemplate(transactionManager).execute(status -> {
+            assertTrue(TransactionSynchronizationManager.isActualTransactionActive());
+            return service.explain(order, null, "Status?");
+        });
+        assertFalse(result.fallback());
     }
     @Test void modelFailureAndMissingTrackingAreExplicitNotFabricated() {
         doThrow(new IllegalStateException()).when(explainer).explain(anyString(), anyString(), any());

@@ -44,6 +44,7 @@ public class NotificationRecord {
     public String getBody() { return body; }
     public String getCorrelationId() { return correlationId; }
     public Instant getOccurredAt() { return occurredAt; }
+    public Instant getCreatedAt() { return createdAt; }
     public Instant getSentAt() { return sentAt; }
     public boolean isAuditPublished() { return auditPublished; }
 }

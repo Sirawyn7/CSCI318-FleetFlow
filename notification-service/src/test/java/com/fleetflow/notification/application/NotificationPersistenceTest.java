@@ -8,8 +8,13 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.*;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.data.domain.PageRequest;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -22,12 +27,21 @@ class NotificationPersistenceTest {
     @Autowired NotificationRepository notifications;
     @Autowired ProcessedEventRepository processed;
     @Autowired DeliveryOrderLinkRepository links;
+    @Autowired NotificationTemplateRepository templates;
+    @Autowired PlatformTransactionManager transactionManager;
     @MockitoBean DeliveryDataPort data;
     @MockitoBean NotificationAuditPort audit;
     private final UUID order = UUID.randomUUID(), customer = UUID.randomUUID(), deliveryId = UUID.randomUUID();
     @BeforeEach void setup() {
         notifications.deleteAll(); processed.deleteAll(); links.deleteAll();
-        when(data.order(order)).thenReturn(new DeliveryData.Order(order, customer, "PLACED", null));
+        when(data.order(order)).thenAnswer(call -> {
+            assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
+            return new DeliveryData.Order(order, customer, "PLACED", null);
+        });
+        doAnswer(call -> {
+            assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
+            return null;
+        }).when(audit).publish(any());
     }
     @Test void allFiveTemplatesReachOnlyTheIntendedInboxAndDuplicateIsIgnored() {
         for (var kind : NotificationKind.values()) {
@@ -68,11 +82,59 @@ class NotificationPersistenceTest {
         doNothing().when(audit).publish(any()); delivery.publishAudit(id);
         assertTrue(notifications.findById(id).orElseThrow().isAuditPublished());
     }
+    @Test void deliveryAndAuditSuspendAnAmbientTransactionForExternalCalls() {
+        receive(UUID.randomUUID(), order, null, NotificationKind.ASSIGNED);
+        UUID id = notifications.findAll().getFirst().getId();
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            assertTrue(TransactionSynchronizationManager.isActualTransactionActive());
+            delivery.deliver(id);
+            delivery.publishAudit(id);
+            assertTrue(TransactionSynchronizationManager.isActualTransactionActive());
+        });
+        assertTrue(notifications.findById(id).orElseThrow().isAuditPublished());
+    }
     @Test void conflictingMappingRollsBackTheEventClaimAndNotification() {
         receive(UUID.randomUUID(), order, deliveryId, NotificationKind.IN_TRANSIT);
         UUID badEvent = UUID.randomUUID();
         assertThrows(IllegalArgumentException.class, () -> receive(badEvent, UUID.randomUUID(), deliveryId, NotificationKind.DELIVERED));
         assertFalse(processed.existsById(badEvent)); assertEquals(1, notifications.count());
+    }
+    @Test void keysetCursorKeepsItsPlaceWhenEarlierPendingRowsResolve() {
+        for (int i = 0; i < 30; i++) receive(UUID.randomUUID(), order, null, NotificationKind.IN_TRANSIT);
+
+        var first = notifications.findNextPending(null, null, PageRequest.of(0, 25));
+        assertEquals(25, first.size());
+        var last = first.getLast();
+        first.forEach(n -> delivery.deliver(n.getId()));
+
+        var next = notifications.findNextPending(last.getCreatedAt(), last.getId(), PageRequest.of(0, 25));
+        assertEquals(5, next.size());
+        assertTrue(Collections.disjoint(first.stream().map(NotificationRecord::getId).toList(),
+                next.stream().map(NotificationRecord::getId).toList()));
+    }
+    @Test void concurrentFirstDeliveriesRetryAfterTemplateInsertConflict() throws Exception {
+        receive(UUID.randomUUID(), order, null, NotificationKind.ASSIGNED);
+        receive(UUID.randomUUID(), order, null, NotificationKind.ASSIGNED);
+        List<UUID> ids = notifications.findAll().stream().map(NotificationRecord::getId).toList();
+        templates.deleteAll();
+        var gate = new CyclicBarrier(2);
+        when(data.order(order)).thenAnswer(call -> {
+            assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
+            gate.await(10, TimeUnit.SECONDS);
+            return new DeliveryData.Order(order, customer, "PLACED", null);
+        });
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> delivery.deliver(ids.get(0)));
+            var second = executor.submit(() -> delivery.deliver(ids.get(1)));
+            first.get(15, TimeUnit.SECONDS);
+            second.get(15, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+        assertTrue(templates.findById(NotificationKind.ASSIGNED).isPresent());
+        assertTrue(ids.stream().map(id -> notifications.findById(id).orElseThrow())
+                .allMatch(n -> n.getSentAt() != null));
     }
     private void receive(UUID event, UUID orderId, UUID delivery, NotificationKind kind) {
         service.receive(event, Instant.now(), "correlation", orderId, delivery, kind, "Stationary");
