@@ -12,7 +12,7 @@ import java.util.function.Consumer;
 public class DeliveryEtaUpdatedConsumerConfig {
 
     @Bean
-    public Consumer<DeliveryEtaUpdated> deliveryEtaUpdatedConsumer(DeliveryEtaProjectionService service) {
+    public Consumer<DeliveryEtaUpdated> deliveryEtaProjectionConsumer(DeliveryEtaProjectionService service) {
         return event -> service.apply(
                 event.envelope().eventId(),
                 event.envelope().eventType(),

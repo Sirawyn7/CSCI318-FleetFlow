@@ -50,5 +50,3 @@ queryable over REST.
   the FR11-FR14 ADRs) remains separate, unclaimed work.
 - The view is never cleaned up when a delivery completes; that belongs with the
   completion/state-store lifecycle work (FR14).
-
-Claude finished the response

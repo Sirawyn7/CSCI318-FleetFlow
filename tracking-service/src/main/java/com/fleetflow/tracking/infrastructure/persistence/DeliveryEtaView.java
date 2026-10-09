@@ -13,7 +13,6 @@ import java.util.UUID;
  * ETA otherwise lives only in Kafka Streams state, which is not queryable over REST
  * (see docs/decisions/0014-tracking-status-read-model.md).
  */
-
 @Entity
 @Table(name = "delivery_eta_view")
 public class DeliveryEtaView {
@@ -36,8 +35,15 @@ public class DeliveryEtaView {
         this.observedAt = observedAt;
     }
 
-    /** Kafka does not order events across restarts/rebalances; never let an older ETA win. */
+    /**
+     * Kafka does not order events across restarts/rebalances; never let an older ETA win.
+     * An event with no timestamp cannot be ordered against the stored one, so it is ignored
+     * rather than allowed to overwrite (or crash on) a known-good value.
+     */
     public boolean replaceIfNewer(Instant newEstimatedArrival, Instant newObservedAt) {
+        if (newObservedAt == null) {
+            return false;
+        }
         if (observedAt != null && !newObservedAt.isAfter(observedAt)) {
             return false;
         }

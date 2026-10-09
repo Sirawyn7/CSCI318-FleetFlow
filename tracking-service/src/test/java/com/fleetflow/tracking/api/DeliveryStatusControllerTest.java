@@ -40,9 +40,12 @@ class DeliveryStatusControllerTest {
 
     @Test
     void unknownOrderIs404() throws Exception {
-        when(queryService.statusForOrder(orderId)).thenThrow(new NoSuchElementException());
+        when(queryService.statusForOrder(orderId))
+                .thenThrow(new NoSuchElementException("No delivery for order " + orderId));
 
-        mockMvc.perform(get("/deliveries/order/{id}/status", orderId)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/deliveries/order/{id}/status", orderId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("No delivery for order " + orderId));
     }
 
     @Test

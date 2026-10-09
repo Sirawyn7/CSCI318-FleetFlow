@@ -81,4 +81,17 @@ public class DeliveryEtaProjectionServiceTest {
         assertEquals(t0.plusSeconds(900), view.getEstimatedArrival());
         verify(processedEventRepository).save(any(ProcessedEvent.class));
     }
+
+    @Test
+    void eventWithNoTimestampDoesNotOverwriteOrCrash() {
+        var view = new DeliveryEtaView(deliveryId, t0.plusSeconds(900), t0.plusSeconds(30));
+        UUID eventId = UUID.randomUUID();
+        when(processedEventRepository.existsById(eventId)).thenReturn(false);
+        when(etaRepository.findById(deliveryId)).thenReturn(Optional.of(view));
+
+        service.apply(eventId, TYPE, deliveryId, t0.plusSeconds(600), null);
+
+        assertEquals(t0.plusSeconds(900), view.getEstimatedArrival());
+        assertEquals(t0.plusSeconds(30), view.getObservedAt());
+    }
 }
