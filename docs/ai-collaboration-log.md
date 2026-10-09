@@ -198,6 +198,19 @@ getting FR11's simpler single-output topology working correctly.
 
 ---
 
+## 2026-10-05 — FR14 delivery completion and proof (Tenzin)
+**Prompt/context:** Asked the assistant to implement FR14 in Tracking Service,
+covering delivery completion, proof, REST access and `DeliveryCompleted` publication.
+**Proposed by agent:** Store a courier-supplied route summary, confirmation and
+completion timestamp on Delivery, with immutable proof and retry protection.
+**Decision:** Accepted option 1, as recorded in
+`docs/decisions/0014-FR14-completion-proof.md`.
+**Rationale:** See `docs/decisions/0014-FR14-completion-proof.md` for the reasoning
+and limitations of using textual proof instead of GPS-derived route history.
+**Prompt record:** `docs/prompts/0013-uc7-fr14-completion-proof.md`.
+**Authorship:** Entry drafted with AI assistance at Tenzin's request, summarising
+the existing accepted ADR.
+
 ## 2026-09-29 — FR13 risk detection and UC6 review (Tenzin)
 **Prompt/context:** Asked the assistant to complete FR13 and review the existing
 FR11/FR12 implementation. See `docs/prompts/0010-uc6-completion-and-review.md`.
@@ -208,7 +221,7 @@ retry and snapshot recovery. See
 `docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md` for the design
 options and implementation details. Verification passed 42 unit/regression tests
 and 3 real-Kafka integration tests.
-**Decision:** Accepted 
+**Decision:** Accepted
 **Rationale:** This adds risk detection without changing the existing ETA and geofence setup. I also changed the tracking so a courier can have multiple deliveries instead of just one. The observation window and cooldown are there to avoid sending alerts too early or repeatedly. The thresholds can still be adjusted later if needed after more testing. ADR 0013 covers the other options considered and the current limitations.
 ---
 

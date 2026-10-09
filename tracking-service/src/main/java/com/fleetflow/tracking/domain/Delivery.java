@@ -36,6 +36,43 @@ public class Delivery {
 
     private Instant startedAt;
 
+    private Instant completedAt;
+    private String routeSummary;
+    private String confirmation;
+
+    /** Completion proof is immutable audit evidence owned by this aggregate. */
+    public boolean complete(UUID courierId, String routeSummary, String confirmation, Instant completedAt) {
+        if (!this.courierId.equals(courierId)) {
+            throw new IllegalStateException("Only the assigned courier can complete this delivery");
+        }
+        String route = requiredText(routeSummary, "routeSummary");
+        String proof = requiredText(confirmation, "confirmation");
+        if (this.completedAt != null) {
+            if (!this.routeSummary.equals(route) || !this.confirmation.equals(proof)) {
+                throw new IllegalStateException("Completed delivery proof cannot be changed");
+            }
+            return false;
+        }
+        if (completedAt == null || completedAt.isBefore(startedAt)) {
+            throw new IllegalArgumentException("Completion cannot precede delivery start");
+        }
+        this.routeSummary = route;
+        this.confirmation = proof;
+        this.completedAt = completedAt;
+        return true;
+    }
+
+    private static String requiredText(String value, String field) {
+        if (value == null || value.isBlank() || value.strip().length() > 255) {
+            throw new IllegalArgumentException(field + " must contain 1–255 characters");
+        }
+        return value.strip();
+    }
+
+    public Instant getCompletedAt() { return completedAt; }
+    public String getRouteSummary() { return routeSummary; }
+    public String getConfirmation() { return confirmation; }
+
     private Instant requestedDeliveryBy;
 
     private Instant arrivedAt;

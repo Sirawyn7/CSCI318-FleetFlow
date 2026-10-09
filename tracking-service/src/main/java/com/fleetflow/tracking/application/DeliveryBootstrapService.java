@@ -75,8 +75,9 @@ public class DeliveryBootstrapService {
                 averageSpeedKmh, destination.get().getRequestedDeliveryBy());
         deliveryRepository.save(delivery);
 
-        deliveryStartedPublisher.publish(delivery);
+        // Publish the internal projection first so its failure cannot leak DeliveryStarted.
         activeDeliverySnapshotPublisher.publish(delivery);
+        deliveryStartedPublisher.publish(delivery);
 
         processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
     }

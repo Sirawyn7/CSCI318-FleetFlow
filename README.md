@@ -178,7 +178,7 @@ retry idempotency are not guaranteed by this transaction boundary.
 ## UC6 - Monitor Delivery in Real Time (FR11, FR12, FR13)
 
 Tracking runs on port 8084. UC6 is event-driven; it currently has no monitoring REST
-endpoint. Delivery completion/proof remains UC7/FR14 work.
+endpoint. Delivery completion/proof is covered by UC7/FR14 below.
 
 - **FR11:** GPS capture time plus Haversine distance / configured vehicle speed gives
   ETA. Publish the first estimate, then changes greater than 60 seconds. Ignore stale
@@ -190,7 +190,7 @@ endpoint. Delivery completion/proof remains UC7/FR14 work.
   live under `tracking.risk`; repeated reasons have a 10-minute cooldown.
 
 Tracking bootstraps deliveries from `OrderPlaced`, `CourierRegistered` and
-`OrderAssigned`. Each courier-keyed snapshot contains **all** assigned deliveries.
+`OrderAssigned`. Each courier-keyed snapshot contains all deliveries that have neither arrived nor completed.
 Missing prerequisites cause retries, then the configured DLQ; replay failed assignments
 once their prerequisites exist. GPS arriving before the snapshot is materialized does
 not join; the next ping updates tracking.
@@ -223,3 +223,63 @@ mvn -pl tracking-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.fa
 See [UC6 design and review status](docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md),
 [proposed ADR 0013](docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md), and
 [the meaningful prompt record](docs/prompts/0010-uc6-completion-and-review.md).
+
+## UC7 — Complete delivery and record proof (FR14)
+
+UC7 contains one functional requirement: FR14. Tracking stores the courier's route
+summary and textual receipt confirmation on the Delivery aggregate, alongside the
+existing start timestamp and a server-generated completion timestamp. The summary
+is courier supplied; it is not reconstructed from GPS points. No photo upload or
+signature storage is required for this slice.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/deliveries/{id}/complete` | Record completion and publish `DeliveryCompleted` |
+| GET | `/api/deliveries/{id}` | Read status, timestamps and proof |
+| GET | `/api/deliveries?orderId={orderId}` | Read delivery history for an order, oldest first |
+
+Find the delivery ID through the order history endpoint after assignment. Complete
+it on port 8084 using the assigned courier ID:
+
+```json
+{
+  "courierId": "<assigned-courier-uuid>",
+  "routeSummary": "Depot via Crown Street to customer drop-off",
+  "confirmation": "Received by Alex at reception"
+}
+```
+
+Text fields must contain 1–255 characters after trimming. Completion returns 200
+with `DELIVERED`, both timestamps and proof. Identical retries preserve the original
+proof and do not republish. Different proof or a mismatched courier returns 409;
+invalid input returns 400; a missing delivery returns 404. An unknown order's history
+is an empty list. The supplied courier ID is checked against the assignment, but
+this API does not authenticate a caller's identity.
+
+Completion locks the courier projection and delivery row, so concurrent retries
+cannot both publish and other snapshot writers cannot restore completed deliveries.
+The internal snapshot is published before the external lifecycle event in both
+bootstrap and completion. Snapshot failure rolls back without emitting that event.
+Kafka and H2 are not an atomic transaction: a database commit failure after a
+successful send can still leave an event published. An external-send failure after
+the snapshot succeeds can temporarily remove a delivery from monitoring until retry
+or recovery repairs it.
+Completed deliveries are removed from FR13's courier-keyed list, preserving other
+active orders. ETA, geofence and risk joins see the change once their tables catch up;
+startup recovery also excludes completed deliveries. See
+[ADR 0014](docs/decisions/0014-FR14-completion-proof.md).
+
+Run Tracking tests without Docker:
+
+```text
+mvn -pl tracking-service -am test "-Dtest=!Fr*EndToEndIntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+Run the FR14 real Kafka integration test with Docker running:
+
+```text
+mvn -pl tracking-service -am test -Dtest=Fr14EndToEndIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+Existing rows remain in transit with null proof until completed. Schema updates add
+nullable columns; do not delete an existing Tracking database.
