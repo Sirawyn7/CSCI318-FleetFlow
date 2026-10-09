@@ -11,7 +11,7 @@ import java.util.UUID;
  * Derived read model, not source-of-truth: the latest ETA Tracking itself published
  * for a delivery (FR11), projected from {@code DeliveryEtaUpdated}. Exists because the
  * ETA otherwise lives only in Kafka Streams state, which is not queryable over REST
- * (see docs/decisions/0014-tracking-status-read-model.md).
+ * (see docs/decisions/0016-tracking-status-read-model.md).
  */
 @Entity
 @Table(name = "delivery_eta_view")

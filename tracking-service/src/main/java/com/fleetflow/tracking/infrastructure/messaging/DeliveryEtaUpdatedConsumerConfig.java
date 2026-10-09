@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.function.Consumer;
 
-/** Tracking consuming its own event to build a REST-queryable ETA view (ADR 0014). */
+/** Tracking consuming its own event to build a REST-queryable ETA view (ADR 0016). */
 @Configuration
 public class DeliveryEtaUpdatedConsumerConfig {
 

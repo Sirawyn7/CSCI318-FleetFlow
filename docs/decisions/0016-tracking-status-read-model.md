@@ -1,7 +1,4 @@
-
-
-0014 tracking status read model · MD
-# ADR 0014 — Tracking's order status endpoint and ETA read model
+# ADR 0016 — Tracking's order status endpoint and ETA read model
 
 **Status:** Accepted
 **Owner:** Landon

@@ -32,7 +32,7 @@ spring:
         orderAssignedConsumer-in-0:
           destination: fleetflow.dispatch.order-assigned
           group: tracking-service
-        # Tracking projects its own FR11 output into a REST-queryable ETA view (ADR 0014).
+        # Tracking projects its own FR11 output into a REST-queryable ETA view (ADR 0016).
         deliveryEtaProjectionConsumer-in-0:
           destination: fleetflow.tracking.delivery-eta-updated
           group: tracking-service
