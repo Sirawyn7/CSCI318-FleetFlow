@@ -13,13 +13,16 @@ spring:
   cloud:
     function:
       # Combines this service's plain-binder consumers (bootstrap projections) with
-      # the kafka-streams-binder function (FR11's topology) in one definition --
+      # the kafka-streams-binder functions (FR11-FR13) in one definition --
       # Spring Cloud Stream routes each to the correct binder automatically based on
       # its KStream/KTable vs plain-type parameters.
-      definition: orderPlacedConsumer;courierRegisteredConsumer;orderAssignedConsumer;deliveryEtaProjectionConsumer;etaRecalculation;nearDestinationDetection;arrivedDetection
+      definition: deliveryArrivedConsumer;orderPlacedConsumer;courierRegisteredConsumer;orderAssignedConsumer;deliveryEtaProjectionConsumer;etaRecalculation;nearDestinationDetection;arrivedDetection;riskDetection
     stream:
       bindings:
         # --- Regular binder: bootstrap consumers ---
+        deliveryArrivedConsumer-in-0:
+          destination: fleetflow.tracking.delivery-arrived
+          group: tracking-service-arrival
         orderPlacedConsumer-in-0:
           destination: fleetflow.order.order-placed
           group: tracking-service
@@ -36,6 +39,8 @@ spring:
         # --- Regular binder: bootstrap publishers ---
         deliveryStarted-out-0:
           destination: fleetflow.tracking.delivery-started
+        deliveryCompleted-out-0:
+          destination: fleetflow.tracking.delivery-completed
         activeDeliverySnapshot-out-0:
           # Internal materialization topic (see ActiveDeliverySnapshot's Javadoc) --
           # deliberately named outside the fleetflow.<context>.<event> catalogue
@@ -43,14 +48,14 @@ spring:
           # ever consume. Key serializer for this binding lives under
           # spring.cloud.stream.kafka.bindings below, not here -- see that block's
           # comment for why.
-          destination: fleetflow.tracking.internal.active-delivery-by-courier
+          destination: fleetflow.tracking.internal.active-deliveries-by-courier-v2
         # --- kafka-streams binder: FR11 topology ---
         # in-0 = KStream<String, CourierLocationUpdated>, in-1 = KTable<String,
-        # ActiveDeliverySnapshot>, out-0 = KStream<String, DeliveryEtaUpdated>.
+        # CourierDeliveriesSnapshot>, out-0 = KStream<String, DeliveryEtaUpdated>.
         etaRecalculation-in-0:
           destination: fleetflow.fleet.courier-location-updated
         etaRecalculation-in-1:
-          destination: fleetflow.tracking.internal.active-delivery-by-courier
+          destination: fleetflow.tracking.internal.active-deliveries-by-courier-v2
         etaRecalculation-out-0:
           destination: fleetflow.tracking.delivery-eta-updated
         # --- kafka-streams binder: FR12 topology (two separate joins, see
@@ -58,15 +63,21 @@ spring:
         nearDestinationDetection-in-0:
           destination: fleetflow.fleet.courier-location-updated
         nearDestinationDetection-in-1:
-          destination: fleetflow.tracking.internal.active-delivery-by-courier
+          destination: fleetflow.tracking.internal.active-deliveries-by-courier-v2
         nearDestinationDetection-out-0:
           destination: fleetflow.tracking.delivery-near-destination
         arrivedDetection-in-0:
           destination: fleetflow.fleet.courier-location-updated
         arrivedDetection-in-1:
-          destination: fleetflow.tracking.internal.active-delivery-by-courier
+          destination: fleetflow.tracking.internal.active-deliveries-by-courier-v2
         arrivedDetection-out-0:
           destination: fleetflow.tracking.delivery-arrived
+        riskDetection-in-0:
+          destination: fleetflow.fleet.courier-location-updated
+        riskDetection-in-1:
+          destination: fleetflow.tracking.internal.active-deliveries-by-courier-v2
+        riskDetection-out-0:
+          destination: fleetflow.tracking.delivery-at-risk
       kafka:
         binder:
           brokers: ${KAFKA_BROKERS:localhost:9092}
@@ -76,6 +87,12 @@ spring:
         # or IntelliJ's config metadata (correctly) flags it as unresolvable and Spring
         # silently ignores it at runtime instead of actually enabling a DLQ.
         bindings:
+          deliveryCompleted-out-0:
+            producer:
+              sync: true
+          deliveryArrivedConsumer-in-0:
+            consumer:
+              enableDlq: true
           orderPlacedConsumer-in-0:
             consumer:
               enableDlq: true
@@ -88,8 +105,12 @@ spring:
           deliveryEtaProjectionConsumer-in-0:
             consumer:
               enableDlq: true
+          deliveryStarted-out-0:
+            producer:
+              sync: true
           activeDeliverySnapshot-out-0:
             producer:
+              sync: true
               configuration:
                 key.serializer: org.apache.kafka.common.serialization.StringSerializer
           # Test-only: Fr11EndToEndIntegrationTest publishes a keyed CourierLocationUpdated
@@ -108,6 +129,22 @@ spring:
               configuration:
                 key.serializer: org.apache.kafka.common.serialization.StringSerializer
         streams:
+          bindings:
+            etaRecalculation-in-1:
+              consumer:
+                materializedAs: courier-deliveries
+            nearDestinationDetection-in-1:
+              consumer:
+                materializedAs: courier-deliveries
+            arrivedDetection-in-1:
+              consumer:
+                materializedAs: courier-deliveries
+            riskDetection-in-1:
+              consumer:
+                materializedAs: courier-deliveries
+            riskDetection-in-0:
+              consumer:
+                timestampExtractorBeanName: locationTimestampExtractor
           binder:
             brokers: ${KAFKA_BROKERS:localhost:9092}
             # Each Kafka Streams function gets its own separate KafkaStreams client
@@ -116,13 +153,31 @@ spring:
             # the same local RocksDB state directory at startup, even within the same
             # JVM/application. The top-level application-id below is now just the
             # fallback default for any future function that doesn't get its own entry.
-            application-id: tracking-service-eta-recalculation
+            application-id: tracking-service-eta-recalculation-v2
             functions:
+              riskDetection:
+                application-id: tracking-service-risk-detection-v2
               etaRecalculation:
-                application-id: tracking-service-eta-recalculation
+                application-id: tracking-service-eta-recalculation-v2
               nearDestinationDetection:
-                application-id: tracking-service-near-destination-detection
+                application-id: tracking-service-near-destination-detection-v2
               arrivedDetection:
-                application-id: tracking-service-arrived-detection
+                application-id: tracking-service-arrived-detection-v2
             configuration:
+              processing.guarantee: exactly_once_v2
               default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+tracking:
+  eta:
+    speed-kmh:
+      bicycle: 15
+      motorcycle: 35
+      car: 30
+      van: 28
+      truck: 22
+  risk:
+    window: PT10M
+    minimum-observation: PT5M
+    maximum-ping-gap: PT2M
+    stationary-radius-meters: 30
+    minimum-progress-ratio: 0.1
+    alert-cooldown: PT10M

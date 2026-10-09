@@ -1,5 +1,11 @@
 # FleetFlow
 
+## UC8 — Notifications and status explainer (FR15–FR16)
+
+Notification runs on port 8085. See [the UC8 guide](notification-service/README.md)
+for its inbox and conversational APIs, tests, and the proposed Tracking REST
+contract to connect when the other branches are merged.
+
 ## UC2 — Fleet profiles and load (FR4, FR6)
 
 Fleet runs on port 8082. FR5 shift controls remain a separate team slice.
@@ -175,51 +181,111 @@ errors, but JPA and Kafka are not a distributed transaction: a database commit f
 after a successful send can still leave an emitted event. Exactly-once creation and
 retry idempotency are not guaranteed by this transaction boundary.
 
-## UC6 — Real-time ETA recalculation (FR11)
+## UC6 - Monitor Delivery in Real Time (FR11, FR12, FR13)
 
-Tracking runs on port 8084. FR13–FR14 (SLA/anomaly detection, delivery completion)
-remain out of scope for this slice.
+Tracking runs on port 8084. UC6 is event-driven; it currently has no monitoring REST
+endpoint. Delivery completion/proof is covered by UC7/FR14 below.
 
-Tracking has no REST API of its own yet — this slice is entirely event-driven. On
-`OrderAssigned`, it looks up the order's destination (from a derived read model
-projected off `OrderPlaced`) and the courier's vehicle type (from a derived read model
-projected off `CourierRegistered`), creates a `Delivery`, and publishes
-`DeliveryStarted` plus an internal snapshot used to drive the ETA topology.
+- **FR11:** GPS capture time plus Haversine distance / configured vehicle speed gives
+  ETA. Publish the first estimate, then changes greater than 60 seconds. Ignore stale
+  or duplicate timestamps. Speeds are configurable under `tracking.eta.speed-kmh`.
+- **FR12:** publish near-destination at 500 m and arrival at 50 m, once per delivery.
+  The two topics have no cross-topic ordering guarantee (ADR 0011).
+- **FR13:** rolling event-time GPS observations detect `STATIONARY`, `OFF_PACE` and
+  `SLA_BREACH`; publish `DeliveryAtRisk` with delivery/order/courier IDs. Thresholds
+  live under `tracking.risk`; repeated reasons have a 10-minute cooldown.
 
-A Kafka Streams topology then joins every `CourierLocationUpdated` ping against the
-courier's active delivery (a stream-table join), recalculates the estimated arrival
-via Haversine distance × a locked average speed per vehicle type (no external routing
-API — see `docs/decisions/0010-fr11-internal-topic-and-rekeying.md`), and publishes
-`DeliveryEtaUpdated` only when the new estimate differs from the last published one by
-more than 60 seconds, to avoid republishing on every single ping.
+Tracking bootstraps deliveries from `OrderPlaced`, `CourierRegistered` and
+`OrderAssigned`. Each courier-keyed snapshot contains all deliveries that have neither arrived nor completed.
+Missing prerequisites cause retries, then the configured DLQ; replay failed assignments
+once their prerequisites exist. GPS arriving before the snapshot is materialized does
+not join; the next ping updates tracking.
 
-Tracking consumes `fleetflow.order.order-placed`, `fleetflow.fleet.courier-registered`
-and `fleetflow.dispatch.order-assigned` in consumer group `tracking-service`. Bootstrap
-is idempotent: if `OrderAssigned` arrives before either read model has been populated
-(Kafka does not guarantee ordering across different topics), it is not marked
-processed, so a later redelivery can still complete it rather than the assignment
-being silently and permanently dropped. Rejected messages retry then go to the
-binder's dead-letter topics (`error.<source-topic>.tracking-service`) for
-investigation/replay.
+The internal topic is now
+`fleetflow.tracking.internal.active-deliveries-by-courier-v2`; it is not a public event.
+Startup republishes existing delivery snapshots from Tracking's database. Do not delete
+local H2 data to migrate. New v2 stream application IDs isolate the changed schema;
+previously published milestones can be emitted again during this upgrade. Old rows
+without promised time have no SLA prediction until populated.
 
-**Integration boundaries:** the internal topic
-`fleetflow.tracking.internal.active-delivery-by-courier` is Streams-topology plumbing,
-not a catalogue event — no other service should ever consume it. `CourierLocationUpdated`
-is now published with a Kafka record key (courier ID), a retroactive change to FR10's
-already-shipped publisher, required so the stream-table join is correctly
-co-partitioned; see the ADR above for the full reasoning. ETA history is not persisted
-anywhere yet — only the latest published estimate lives in the topology's own RocksDB
-state store, not in a queryable table.
+Kafka Streams uses `exactly_once_v2` for its state/output transactions. Consumers
+requiring committed events must use `isolation.level=read_committed`. JPA bootstrap
+and Kafka publication remain separate transactions. Broker transaction support is
+required; a single-node development broker must set its transaction-state replication
+factor and minimum ISR to 1. Integration tests use an isolated Testcontainers broker.
 
-
-Run all Tracking tests (requires Docker for the real Kafka integration tests):
+Run all Tracking tests (Docker required):
 
 ```text
 mvn -pl tracking-service -am test
 ```
 
-Run domain and application tests without Docker:
+Run unit/regression tests without Docker:
 
 ```text
-mvn -pl tracking-service -am test -Dtest=EtaCalculationServiceTest,DeliveryTest,DeliveryBootstrapServiceTest,GeofenceEvaluationServiceTest,ContractBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false
+mvn -pl tracking-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
 ```
+
+See [UC6 design and review status](docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md),
+[proposed ADR 0013](docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md), and
+[the meaningful prompt record](docs/prompts/0010-uc6-completion-and-review.md).
+
+## UC7 — Complete delivery and record proof (FR14)
+
+UC7 contains one functional requirement: FR14. Tracking stores the courier's route
+summary and textual receipt confirmation on the Delivery aggregate, alongside the
+existing start timestamp and a server-generated completion timestamp. The summary
+is courier supplied; it is not reconstructed from GPS points. No photo upload or
+signature storage is required for this slice.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/deliveries/{id}/complete` | Record completion and publish `DeliveryCompleted` |
+| GET | `/api/deliveries/{id}` | Read status, timestamps and proof |
+| GET | `/api/deliveries?orderId={orderId}` | Read delivery history for an order, oldest first |
+
+Find the delivery ID through the order history endpoint after assignment. Complete
+it on port 8084 using the assigned courier ID:
+
+```json
+{
+  "courierId": "<assigned-courier-uuid>",
+  "routeSummary": "Depot via Crown Street to customer drop-off",
+  "confirmation": "Received by Alex at reception"
+}
+```
+
+Text fields must contain 1–255 characters after trimming. Completion returns 200
+with `DELIVERED`, both timestamps and proof. Identical retries preserve the original
+proof and do not republish. Different proof or a mismatched courier returns 409;
+invalid input returns 400; a missing delivery returns 404. An unknown order's history
+is an empty list. The supplied courier ID is checked against the assignment, but
+this API does not authenticate a caller's identity.
+
+Completion locks the courier projection and delivery row, so concurrent retries
+cannot both publish and other snapshot writers cannot restore completed deliveries.
+The internal snapshot is published before the external lifecycle event in both
+bootstrap and completion. Snapshot failure rolls back without emitting that event.
+Kafka and H2 are not an atomic transaction: a database commit failure after a
+successful send can still leave an event published. An external-send failure after
+the snapshot succeeds can temporarily remove a delivery from monitoring until retry
+or recovery repairs it.
+Completed deliveries are removed from FR13's courier-keyed list, preserving other
+active orders. ETA, geofence and risk joins see the change once their tables catch up;
+startup recovery also excludes completed deliveries. See
+[ADR 0014](docs/decisions/0014-FR14-completion-proof.md).
+
+Run Tracking tests without Docker:
+
+```text
+mvn -pl tracking-service -am test "-Dtest=!Fr*EndToEndIntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+Run the FR14 real Kafka integration test with Docker running:
+
+```text
+mvn -pl tracking-service -am test -Dtest=Fr14EndToEndIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+Existing rows remain in transit with null proof until completed. Schema updates add
+nullable columns; do not delete an existing Tracking database.
