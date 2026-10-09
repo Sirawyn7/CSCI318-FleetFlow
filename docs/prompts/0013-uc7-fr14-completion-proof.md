@@ -22,7 +22,7 @@ Yes—UC7 contains only FR14. I’m adding completion and history REST endpoints
 
 ## Outcome
 
-Implemented REST completion/history, persisted proof, retry protection and Kafka publication. All 34 local tests and the FR14 Kafka integration test passed. The design and limitations are recorded in [ADR 0014](../decisions/0014-FR14-completion-proof.md), which is marked Accepted with Tenzin as owner. Its decision wording was drafted with AI assistance.
+Implemented REST completion/history, persisted proof, retry protection and Kafka publication. All 34 local tests and the FR14 Kafka integration test passed. The design and limitations are recorded in [ADR 0014](../decisions/0014-FR14-completion-proof.md), which is marked Accepted with Tenzin as owner. The original decision wording was drafted with AI assistance. Tenzin subsequently revised the Decision section on 2026-10-09; that user-supplied wording is preserved verbatim. The assistant corrected the surrounding technical description to match the reconciled implementation.
 
 ## Review follow-up — 2026-10-09
 

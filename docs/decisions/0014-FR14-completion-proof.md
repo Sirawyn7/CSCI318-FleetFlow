@@ -46,17 +46,10 @@ recorded below.
 
 ## Decision
 
-Use option 1: store the courier's route summary, delivery confirmation and completion
-timestamp on the Delivery aggregate. This meets FR14 while keeping delivery proof
-within Tracking Service and following the existing project structure. A GPS-derived
-summary would require location history that the service does not currently store.
+I decided to go with option 1, which stores the courier's route summary, delivery confirmation and completion time directly in the Delivery aggregate. This meets FR14 and keeps everything within Tracking Service, following our existing project structure. I also considered using GPS data to generate the route summary, but that would require location history, which we don't currently store.
 
-Keep the original proof unchanged after completion. Identical retries return the
-saved record without publishing another `DeliveryCompleted` event, while conflicting
-changes are rejected. This protects the audit record and avoids duplicate completion
-events from repeated requests.
+Once a delivery is completed, the original proof should stay unchanged. If the same request is sent again, the system returns the saved proof without publishing another `DeliveryCompleted` event. If the details are different, the request is rejected. This helps keep the delivery record reliable and prevents duplicate completion events.
 
-Prompt evidence: `docs/prompts/0013-uc7-fr14-completion-proof.md`.
 
 ## Consequences and limits
 
