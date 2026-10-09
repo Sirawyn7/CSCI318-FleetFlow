@@ -1,6 +1,7 @@
 package com.fleetflow.tracking.infrastructure.messaging;
 
 import com.fleetflow.tracking.domain.Delivery;
+import com.fleetflow.tracking.infrastructure.persistence.DeliveryJpaRepository;
 import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.Message;
@@ -19,24 +20,31 @@ public class ActiveDeliverySnapshotPublisher {
     private static final String BINDING_NAME = "activeDeliverySnapshot-out-0";
 
     private final StreamBridge streamBridge;
+    private final DeliveryJpaRepository deliveries;
 
-    public ActiveDeliverySnapshotPublisher(StreamBridge streamBridge) {
+    public ActiveDeliverySnapshotPublisher(StreamBridge streamBridge, DeliveryJpaRepository deliveries) {
         this.streamBridge = streamBridge;
+        this.deliveries = deliveries;
     }
 
     public void publish(Delivery delivery) {
-        ActiveDeliverySnapshot snapshot = new ActiveDeliverySnapshot(
-                delivery.getId(),
-                delivery.getDestination().latitude(),
-                delivery.getDestination().longitude(),
-                delivery.getAverageSpeedKmh(), delivery.getCompletedAt() != null);
+        publish(delivery.getCourierId());
+    }
 
-        Message<ActiveDeliverySnapshot> message = MessageBuilder.withPayload(snapshot)
-                .setHeader(KafkaHeaders.KEY, delivery.getCourierId().toString())
+    /** An empty list clears the courier's materialized snapshot after the final arrival or completion. */
+    public void publish(java.util.UUID courierId) {
+        CourierDeliveriesSnapshot snapshot = new CourierDeliveriesSnapshot(
+                deliveries.findByCourierIdAndArrivedAtIsNullAndCompletedAtIsNull(courierId).stream().map(d -> new ActiveDeliverySnapshot(
+                        d.getId(), d.getDestination().latitude(), d.getDestination().longitude(),
+                        d.getAverageSpeedKmh(), d.getOrderId(), d.getCourierId(),
+                        d.getRequestedDeliveryBy(), d.getStartedAt())).toList());
+
+        Message<CourierDeliveriesSnapshot> message = MessageBuilder.withPayload(snapshot)
+                .setHeader(KafkaHeaders.KEY, courierId.toString())
                 .build();
 
         if (!streamBridge.send(BINDING_NAME, message)) {
-            throw new org.springframework.messaging.MessageDeliveryException("Active delivery snapshot publication failed");
+            throw new IllegalStateException("Active delivery snapshot publication failed");
         }
     }
 }

@@ -30,11 +30,14 @@ class DeliveryCompletionSliceTest {
     @Autowired DeliveryCompletionService service;
     @Autowired DeliveryController controller;
     @Autowired DeliveryJpaRepository repository;
+    @Autowired com.fleetflow.tracking.infrastructure.persistence.CourierVehicleTypeViewRepository couriers;
     @MockitoBean DeliveryCompletedEventPublisher publisher;
     @MockitoBean ActiveDeliverySnapshotPublisher snapshots;
 
     private Delivery start() {
-        return repository.saveAndFlush(Delivery.start(UUID.randomUUID(), UUID.randomUUID(),
+        UUID courier = UUID.randomUUID();
+        couriers.saveAndFlush(new com.fleetflow.tracking.infrastructure.persistence.CourierVehicleTypeView(courier, "VAN"));
+        return repository.saveAndFlush(Delivery.start(UUID.randomUUID(), courier,
                 new GeoCoordinate(-34, 151), 30));
     }
 
@@ -56,7 +59,7 @@ class DeliveryCompletionSliceTest {
         mvc.perform(get("/api/deliveries").param("orderId", d.getOrderId().toString()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].routeSummary").value("Depot to customer"));
         verify(publisher, times(1)).publish(any());
-        verify(snapshots, times(1)).publish(any());
+        verify(snapshots, times(1)).publish(any(Delivery.class));
         assertNotNull(repository.findById(d.getId()).orElseThrow().getCompletedAt());
     }
 
@@ -76,7 +79,7 @@ class DeliveryCompletionSliceTest {
             assertNotNull(second.get(10, java.util.concurrent.TimeUnit.SECONDS).getCompletedAt());
         }
         verify(publisher, times(1)).publish(any());
-        verify(snapshots, times(1)).publish(any());
+        verify(snapshots, times(1)).publish(any(Delivery.class));
     }
 
     @Test
@@ -86,7 +89,30 @@ class DeliveryCompletionSliceTest {
         assertThrows(RuntimeException.class,
                 () -> service.complete(d.getId(), d.getCourierId(), "Route", "Proof"));
         assertNull(repository.findById(d.getId()).orElseThrow().getCompletedAt());
-        verifyNoInteractions(snapshots);
+        var order = inOrder(snapshots, publisher);
+        order.verify(snapshots).publish(any(Delivery.class));
+        order.verify(publisher).publish(any());
+    }
+
+    @Test
+    void snapshotFailureRollsBackProofBeforeExternalPublishAndRetryPublishesOnce() {
+        var d = start();
+        doThrow(new IllegalStateException("snapshot unavailable")).doNothing()
+                .when(snapshots).publish(any(Delivery.class));
+        assertThrows(IllegalStateException.class,
+                () -> service.complete(d.getId(), d.getCourierId(), "Route", "Proof"));
+        var rolledBack = repository.findById(d.getId()).orElseThrow();
+        assertNull(rolledBack.getCompletedAt());
+        assertNull(rolledBack.getRouteSummary());
+        assertNull(rolledBack.getConfirmation());
+        verifyNoInteractions(publisher);
+
+        service.complete(d.getId(), d.getCourierId(), "Route", "Proof");
+        service.complete(d.getId(), d.getCourierId(), "Route", "Proof");
+        var order = inOrder(snapshots, publisher);
+        order.verify(snapshots, times(2)).publish(any(Delivery.class));
+        order.verify(publisher).publish(any());
+        verifyNoMoreInteractions(snapshots, publisher);
     }
 
     @Test

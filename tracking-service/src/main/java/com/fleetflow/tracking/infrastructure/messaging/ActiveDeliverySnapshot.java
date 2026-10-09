@@ -1,6 +1,7 @@
 package com.fleetflow.tracking.infrastructure.messaging;
 
 import java.util.UUID;
+import java.time.Instant;
 
 /**
  * Internal to tracking-service's own Kafka Streams topology -- deliberately NOT added
@@ -12,9 +13,6 @@ import java.util.UUID;
  * sense.
  */
 public record ActiveDeliverySnapshot(UUID deliveryId, double destinationLatitude, double destinationLongitude,
-                                     double averageSpeedKmh, boolean completed) {
-    public ActiveDeliverySnapshot(UUID deliveryId, double destinationLatitude, double destinationLongitude,
-                                  double averageSpeedKmh) {
-        this(deliveryId, destinationLatitude, destinationLongitude, averageSpeedKmh, false);
-    }
+                                     double averageSpeedKmh, UUID orderId, UUID courierId,
+                                     Instant requestedDeliveryBy, Instant startedAt) {
 }

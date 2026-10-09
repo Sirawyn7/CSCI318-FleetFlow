@@ -43,11 +43,14 @@ class Fr14EndToEndIntegrationTest {
 
     @Autowired DeliveryCompletionService service;
     @Autowired DeliveryJpaRepository repository;
+    @Autowired com.fleetflow.tracking.infrastructure.persistence.CourierVehicleTypeViewRepository couriers;
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
     void completedProofIsStoredAndPublishedToRealKafka() throws Exception {
-        var d = repository.saveAndFlush(Delivery.start(UUID.randomUUID(), UUID.randomUUID(),
+        UUID courier = UUID.randomUUID();
+        couriers.saveAndFlush(new com.fleetflow.tracking.infrastructure.persistence.CourierVehicleTypeView(courier, "VAN"));
+        var d = repository.saveAndFlush(Delivery.start(UUID.randomUUID(), courier,
                 new GeoCoordinate(-34, 151), 30));
         var props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());

@@ -204,11 +204,31 @@ covering delivery completion, proof, REST access and `DeliveryCompleted` publica
 **Proposed by agent:** Store a courier-supplied route summary, confirmation and
 completion timestamp on Delivery, with immutable proof and retry protection.
 **Decision:** Accepted option 1, as recorded in
-`docs/decisions/0013-FR14-completion-proof.md`.
-**Rationale:** See `docs/decisions/0013-FR14-completion-proof.md` for the reasoning
+`docs/decisions/0014-FR14-completion-proof.md`.
+**Rationale:** See `docs/decisions/0014-FR14-completion-proof.md` for the reasoning
 and limitations of using textual proof instead of GPS-derived route history.
-**Prompt record:** `docs/prompts/0010-uc7-fr14-completion-proof.md`.
+**Prompt record:** `docs/prompts/0013-uc7-fr14-completion-proof.md`.
 **Authorship:** Entry drafted with AI assistance at Tenzin's request, summarising
 the existing accepted ADR.
+
+## 2026-09-29 — FR13 risk detection and UC6 review (Tenzin)
+**Prompt/context:** Asked the assistant to complete FR13 and review the existing
+FR11/FR12 implementation. See `docs/prompts/0010-uc6-completion-and-review.md`.
+**Proposed by agent:** Add windowed stationary, off-pace and SLA-risk detection,
+with configurable thresholds and repeated-alert suppression. Also correct GPS-time
+ETA calculation, support multiple deliveries per courier, and improve bootstrap
+retry and snapshot recovery. See
+`docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md` for the design
+options and implementation details. Verification passed 42 unit/regression tests
+and 3 real-Kafka integration tests.
+**Decision:** Accepted
+**Rationale:** This adds risk detection without changing the existing ETA and geofence setup. I also changed the tracking so a courier can have multiple deliveries instead of just one. The observation window and cooldown are there to avoid sending alerts too early or repeatedly. The thresholds can still be adjusted later if needed after more testing. ADR 0013 covers the other options considered and the current limitations.
+---
+
+## 2026-10-08 — ADR 0013 review follow-up (Tenzin)
+**Prompt/context:** Addressed the PR review of UC6 and the conflicting ADR review status. See `docs/prompts/0011-uc6-review-corrections.md`.
+**Decision:** Accepted option 1, as explicitly confirmed by Tenzin in this session.
+**Rationale:** See the Decision section of `docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md` for Tenzin’s explanation.
+**AI assistance:** The assistant proposed draft wording and suggested spelling and terminology corrections; Tenzin supplied the final acceptance and revised paragraph. This records the confirmation on 2026-10-08 and does not establish when the earlier ADR review occurred.
 
 ---
