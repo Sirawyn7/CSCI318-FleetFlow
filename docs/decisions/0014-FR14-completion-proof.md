@@ -46,8 +46,6 @@ recorded below.
 
 ## Decision
 
-*Wording drafted with AI assistance.*
-
 Use option 1: store the courier's route summary, delivery confirmation and completion
 timestamp on the Delivery aggregate. This meets FR14 while keeping delivery proof
 within Tracking Service and following the existing project structure. A GPS-derived
@@ -77,8 +75,6 @@ Tests cover domain invariants, HTTP contracts, H2 persistence, concurrent retrie
 rollback on publication failure and event serialization/publication to real Kafka.
 
 ## FR13 reconciliation — 2026-10-09
-
-*Wording drafted with AI assistance.*
 
 The user confirmed FR13 → FR14 reconciliation. Local `main` already includes FR13
 via merge `1885ba5`; FR14 incorporates that implementation and its arrival latch.
