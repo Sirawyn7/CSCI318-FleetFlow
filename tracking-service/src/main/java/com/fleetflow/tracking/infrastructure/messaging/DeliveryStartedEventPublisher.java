@@ -30,6 +30,8 @@ public class DeliveryStartedEventPublisher {
         DeliveryStarted event = new DeliveryStarted(envelope, delivery.getId(), delivery.getOrderId(),
                 delivery.getCourierId());
 
-        streamBridge.send(BINDING_NAME, event);
+        if (!streamBridge.send(BINDING_NAME, event)) {
+            throw new IllegalStateException("DeliveryStarted publication failed");
+        }
     }
 }

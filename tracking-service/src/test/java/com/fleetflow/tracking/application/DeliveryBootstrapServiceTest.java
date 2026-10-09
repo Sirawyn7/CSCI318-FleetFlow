@@ -42,7 +42,8 @@ class DeliveryBootstrapServiceTest {
 
     private DeliveryBootstrapService service() {
         return new DeliveryBootstrapService(destinationRepository, vehicleTypeRepository, deliveryRepository,
-                processedEventRepository, deliveryStartedPublisher, activeDeliverySnapshotPublisher);
+                processedEventRepository, deliveryStartedPublisher, activeDeliverySnapshotPublisher,
+                new VehicleSpeedConfiguration(new org.springframework.mock.env.MockEnvironment()));
     }
 
     @Test
@@ -53,7 +54,7 @@ class DeliveryBootstrapServiceTest {
         when(processedEventRepository.existsById(eventId)).thenReturn(false);
         when(destinationRepository.findById(orderId)).thenReturn(
                 Optional.of(new OrderDestinationView(orderId, new GeoCoordinate(-33.87, 151.21), Instant.now())));
-        when(vehicleTypeRepository.findById(courierId)).thenReturn(
+        when(vehicleTypeRepository.findForUpdate(courierId)).thenReturn(
                 Optional.of(new CourierVehicleTypeView(courierId, "VAN")));
 
         service().bootstrap(eventId, "OrderAssigned", orderId, courierId);
@@ -71,10 +72,11 @@ class DeliveryBootstrapServiceTest {
         UUID courierId = UUID.randomUUID();
         when(processedEventRepository.existsById(eventId)).thenReturn(false);
         when(destinationRepository.findById(orderId)).thenReturn(Optional.empty());
-        when(vehicleTypeRepository.findById(courierId)).thenReturn(
+        when(vehicleTypeRepository.findForUpdate(courierId)).thenReturn(
                 Optional.of(new CourierVehicleTypeView(courierId, "VAN")));
 
-        service().bootstrap(eventId, "OrderAssigned", orderId, courierId);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> service().bootstrap(eventId, "OrderAssigned", orderId, courierId));
 
         verify(deliveryRepository, never()).save(any(Delivery.class));
         verify(processedEventRepository, never()).save(any(ProcessedEvent.class));
@@ -88,11 +90,47 @@ class DeliveryBootstrapServiceTest {
         when(processedEventRepository.existsById(eventId)).thenReturn(false);
         when(destinationRepository.findById(orderId)).thenReturn(
                 Optional.of(new OrderDestinationView(orderId, new GeoCoordinate(-33.87, 151.21), Instant.now())));
-        when(vehicleTypeRepository.findById(courierId)).thenReturn(Optional.empty());
+        when(vehicleTypeRepository.findForUpdate(courierId)).thenReturn(Optional.empty());
 
-        service().bootstrap(eventId, "OrderAssigned", orderId, courierId);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> service().bootstrap(eventId, "OrderAssigned", orderId, courierId));
 
         verify(deliveryRepository, never()).save(any(Delivery.class));
         verify(processedEventRepository, never()).save(any(ProcessedEvent.class));
+    }
+
+    @Test
+    void processedRedeliveryDoesNotAcquireLockOrPublish() {
+        UUID eventId = UUID.randomUUID();
+        when(processedEventRepository.existsById(eventId)).thenReturn(true);
+        service().bootstrap(eventId, "OrderAssigned", UUID.randomUUID(), UUID.randomUUID());
+        org.mockito.Mockito.verifyNoInteractions(vehicleTypeRepository, deliveryRepository,
+                deliveryStartedPublisher, activeDeliverySnapshotPublisher);
+    }
+
+    @Test
+    void duplicateThatCommitsWhileWaitingForCourierLockDoesNotPublishTwice() {
+        UUID eventId = UUID.randomUUID(), orderId = UUID.randomUUID(), courierId = UUID.randomUUID();
+        when(processedEventRepository.existsById(eventId)).thenReturn(false, true);
+        when(destinationRepository.findById(orderId)).thenReturn(Optional.of(
+                new OrderDestinationView(orderId, new GeoCoordinate(-33.8, 151.2), Instant.now())));
+        when(vehicleTypeRepository.findForUpdate(courierId)).thenReturn(Optional.of(
+                new CourierVehicleTypeView(courierId, "VAN")));
+        service().bootstrap(eventId, "OrderAssigned", orderId, courierId);
+        org.mockito.Mockito.verifyNoInteractions(deliveryRepository, deliveryStartedPublisher, activeDeliverySnapshotPublisher);
+    }
+
+    @Test
+    void promisedTimeIsPreservedForSlaEvaluation() {
+        UUID eventId = UUID.randomUUID(), orderId = UUID.randomUUID(), courierId = UUID.randomUUID();
+        Instant promised = Instant.parse("2026-09-29T05:00:00Z");
+        when(destinationRepository.findById(orderId)).thenReturn(Optional.of(
+                new OrderDestinationView(orderId, new GeoCoordinate(-33.8, 151.2), promised)));
+        when(vehicleTypeRepository.findForUpdate(courierId)).thenReturn(Optional.of(
+                new CourierVehicleTypeView(courierId, "VAN")));
+        service().bootstrap(eventId, "OrderAssigned", orderId, courierId);
+        var captor = org.mockito.ArgumentCaptor.forClass(Delivery.class);
+        verify(deliveryRepository).save(captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals(promised, captor.getValue().getRequestedDeliveryBy());
     }
 }

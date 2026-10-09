@@ -117,7 +117,7 @@ GPS Simulator posts pings to a **Fleet REST endpoint**; Fleet validates, updates
 
 Kafka Streams topology consumes `CourierLocationUpdated`, keys by active delivery, and recomputes estimated arrival. Material changes publish `DeliveryEtaUpdated`.
 
-**Calculation method (locked):** Haversine great-circle distance × configured average speed per vehicle type. **No external routing API.** Documented in the report as a deliberate scope decision — road-network routing adds an external dependency and network latency inside a stream topology for no additional marks.
+**Calculation method (locked):** Travel time = Haversine great-circle distance / configured average speed per vehicle type; ETA = GPS capture time + travel time. **No external routing API.** Documented in the report as a deliberate scope decision — road-network routing adds an external dependency and network latency inside a stream topology for no additional marks.
 
 **FR12 — Geofence arrival detection** **[STREAM]** → *O1, O4*
 
@@ -127,6 +127,8 @@ Stream processor evaluates each ping against the destination geofence radius; pu
 
 **FR13 — SLA breach and anomaly detection** **[STREAM]** → *O3*
 Windowed aggregation flags deliveries stationary beyond a threshold, deviating from expected progress, or trending toward a promised-time breach. Publishes `DeliveryAtRisk`.
+
+UC6 implementation, configurable thresholds and review status are recorded in [ADR 0013](decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md).
 
 ### UC7 — Complete Delivery and Record Proof *(Tracking Service)*
 
@@ -194,7 +196,7 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | `DeliveryStarted` | Tracking | Order *(inferred — FR2 status)*, Notification *(documented — FR15, "in transit")* |
 | `DeliveryEtaUpdated` | Tracking | Notification *(inferred)* |
 | `DeliveryNearDestination` | Tracking | Notification *(documented — FR15)* |
-| `DeliveryArrived` | Tracking | Notification *(inferred)* |
+| `DeliveryArrived` | Tracking | Tracking *(internal arrival persistence/snapshot cleanup — ADR 0013)*, Notification *(inferred)* |
 | `DeliveryAtRisk` | Tracking | Dispatch *(documented — FR9)*, Notification *(documented — FR15)* |
 | `DeliveryCompleted` | Tracking | Order *(inferred — FR2)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)* |
 | `NotificationSent` | Notification | none — terminal, audit-only. Worth confirming this is wanted at all rather than assumed. |

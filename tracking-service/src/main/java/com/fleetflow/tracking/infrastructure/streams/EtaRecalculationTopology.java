@@ -5,6 +5,7 @@ import com.fleetflow.contracts.tracking.DeliveryEtaUpdated;
 import com.fleetflow.tracking.domain.EtaCalculationService;
 import com.fleetflow.tracking.domain.GeoCoordinate;
 import com.fleetflow.tracking.infrastructure.messaging.ActiveDeliverySnapshot;
+import com.fleetflow.tracking.infrastructure.messaging.CourierDeliveriesSnapshot;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.KTable;
@@ -41,18 +42,26 @@ public class EtaRecalculationTopology {
     }
 
     @Bean
-    public BiFunction<KStream<String, CourierLocationUpdated>, KTable<String, ActiveDeliverySnapshot>,
-            KStream<String, DeliveryEtaUpdated>> etaRecalculation() {
-        return (locationPings, activeDeliveries) -> locationPings
-                .join(activeDeliveries, EtaRecalculationTopology::computeCandidate)
-                .process(EtaMaterialChangeProcessor::new, EtaMaterialChangeProcessor.STORE_NAME);
+    public StoreBuilder<KeyValueStore<String, Long>> etaLastPingStore() {
+        return Stores.keyValueStoreBuilder(Stores.persistentKeyValueStore(EtaMaterialChangeProcessor.PING_STORE),
+                Serdes.String(), Serdes.Long());
     }
 
-    private static EtaCandidate computeCandidate(CourierLocationUpdated location, ActiveDeliverySnapshot snapshot) {
+    @Bean
+    public BiFunction<KStream<String, CourierLocationUpdated>, KTable<String, CourierDeliveriesSnapshot>,
+            KStream<String, DeliveryEtaUpdated>> etaRecalculation() {
+        return (locationPings, activeDeliveries) -> locationPings
+                .join(activeDeliveries, DeliveryLocation::join)
+                .flatMapValues(values -> values)
+                .mapValues(value -> computeCandidate(value.location(), value.delivery()))
+                .process(EtaMaterialChangeProcessor::new, EtaMaterialChangeProcessor.STORE_NAME, EtaMaterialChangeProcessor.PING_STORE);
+    }
+
+    static EtaCandidate computeCandidate(CourierLocationUpdated location, ActiveDeliverySnapshot snapshot) {
         GeoCoordinate current = new GeoCoordinate(location.location().latitude(), location.location().longitude());
         GeoCoordinate destination = new GeoCoordinate(snapshot.destinationLatitude(), snapshot.destinationLongitude());
         Instant estimatedArrival = EtaCalculationService.estimateArrival(
-                current, destination, snapshot.averageSpeedKmh(), Instant.now());
-        return new EtaCandidate(snapshot.deliveryId(), estimatedArrival);
+                current, destination, snapshot.averageSpeedKmh(), location.capturedAt());
+        return new EtaCandidate(snapshot.deliveryId(), estimatedArrival, location.capturedAt());
     }
 }

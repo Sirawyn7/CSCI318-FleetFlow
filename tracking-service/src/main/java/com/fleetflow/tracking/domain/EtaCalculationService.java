@@ -19,14 +19,14 @@ public final class EtaCalculationService {
     }
 
     /**
-     * Haversine great-circle distance x configured average speed per vehicle type
+     * Haversine great-circle distance divided by configured average speed per vehicle type
      * (locked decision, requirements-outline.md FR11). Deliberately no external
      * routing API -- see that decision's own documented rationale.
      */
     public static Instant estimateArrival(GeoCoordinate currentLocation, GeoCoordinate destination,
                                           double averageSpeedKmh, Instant now) {
-        if (averageSpeedKmh <= 0) {
-            throw new IllegalArgumentException("averageSpeedKmh most be positive");
+        if (!Double.isFinite(averageSpeedKmh) || averageSpeedKmh <= 0) {
+            throw new IllegalArgumentException("averageSpeedKmh must be finite and positive");
         }
         double distanceKm = haversineDistanceKm(currentLocation, destination);
         double hoursRemaining = distanceKm / averageSpeedKmh;
@@ -42,6 +42,7 @@ public final class EtaCalculationService {
 
         double h = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2)
                 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+        h = Math.max(0.0, Math.min(1.0, h));
         double c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
         return EARTH_RADIUS_KM * c;
     }

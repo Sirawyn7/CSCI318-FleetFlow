@@ -1,7 +1,6 @@
 package com.fleetflow.tracking.application;
 
 import com.fleetflow.tracking.domain.Delivery;
-import com.fleetflow.tracking.domain.VehicleAverageSpeed;
 import com.fleetflow.tracking.infrastructure.messaging.ActiveDeliverySnapshotPublisher;
 import com.fleetflow.tracking.infrastructure.messaging.DeliveryStartedEventPublisher;
 import com.fleetflow.tracking.infrastructure.persistence.CourierVehicleTypeView;
@@ -25,17 +24,14 @@ import java.util.UUID;
  * catalogue event) and the internal active-delivery snapshot the Streams topology
  * consumes.
  *
- * Idempotency mirrors the fix applied to FR5's CourierAvailabilityProjectionService
- * (see that service's Javadoc): OrderAssigned can arrive before OrderPlaced or
- * CourierRegistered have been projected here, since Kafka doesn't guarantee ordering
- * across different topics. When either lookup is missing, this deliberately returns
- * WITHOUT recording a ProcessedEvent, so a later redelivery can still bootstrap the
- * delivery once both read models are populated, rather than the assignment being
- * silently and permanently dropped.
+ * Missing prerequisites throw so the binder retries; after retry exhaustion, the
+ * assignment is available in the DLQ for replay. A successful return would acknowledge
+ * it permanently, regardless of whether processed_events was written.
  */
 @Service
 public class DeliveryBootstrapService {
 
+    private final VehicleSpeedConfiguration speeds;
     private final OrderDestinationViewRepository destinationRepository;
     private final CourierVehicleTypeViewRepository vehicleTypeRepository;
     private final DeliveryJpaRepository deliveryRepository;
@@ -48,7 +44,8 @@ public class DeliveryBootstrapService {
                                     DeliveryJpaRepository deliveryRepository,
                                     ProcessedEventRepository processedEventRepository,
                                     DeliveryStartedEventPublisher deliveryStartedPublisher,
-                                    ActiveDeliverySnapshotPublisher activeDeliverySnapshotPublisher) {
+                                    ActiveDeliverySnapshotPublisher activeDeliverySnapshotPublisher, VehicleSpeedConfiguration speeds) {
+        this.speeds = speeds;
         this.destinationRepository = destinationRepository;
         this.vehicleTypeRepository = vehicleTypeRepository;
         this.deliveryRepository = deliveryRepository;
@@ -64,14 +61,18 @@ public class DeliveryBootstrapService {
         }
 
         Optional<OrderDestinationView> destination = destinationRepository.findById(orderId);
-        Optional<CourierVehicleTypeView> vehicleType = vehicleTypeRepository.findById(courierId);
-        if (destination.isEmpty() || vehicleType.isEmpty()) {
+        Optional<CourierVehicleTypeView> vehicleType = vehicleTypeRepository.findForUpdate(courierId);
+        // Serialize snapshots for this courier, and recheck retries after acquiring the lock.
+        if (processedEventRepository.existsById(eventId)) {
             return;
         }
+        if (destination.isEmpty() || vehicleType.isEmpty()) {
+            throw new IllegalStateException("Assignment prerequisites not projected yet; retry or replay the DLQ");
+        }
 
-        double averageSpeedKmh = VehicleAverageSpeed.kmhFor(vehicleType.get().getVehicleType());
+        double averageSpeedKmh = speeds.kmhFor(vehicleType.get().getVehicleType());
         Delivery delivery = Delivery.start(orderId, courierId, destination.get().getDropoffLocation(),
-                averageSpeedKmh);
+                averageSpeedKmh, destination.get().getRequestedDeliveryBy());
         deliveryRepository.save(delivery);
 
         deliveryStartedPublisher.publish(delivery);

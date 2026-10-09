@@ -6,6 +6,7 @@ import com.fleetflow.contracts.tracking.DeliveryNearDestination;
 import com.fleetflow.tracking.domain.GeoCoordinate;
 import com.fleetflow.tracking.domain.GeofenceEvaluationService;
 import com.fleetflow.tracking.infrastructure.messaging.ActiveDeliverySnapshot;
+import com.fleetflow.tracking.infrastructure.messaging.CourierDeliveriesSnapshot;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.KTable;
@@ -44,18 +45,22 @@ public class GeofenceDetectionTopology {
     }
 
     @Bean
-    public BiFunction<KStream<String, CourierLocationUpdated>, KTable<String, ActiveDeliverySnapshot>,
+    public BiFunction<KStream<String, CourierLocationUpdated>, KTable<String, CourierDeliveriesSnapshot>,
             KStream<String, DeliveryNearDestination>> nearDestinationDetection() {
         return (locationPings, activeDeliveries) -> locationPings
-                .join(activeDeliveries, GeofenceDetectionTopology::computeCandidate)
+                .join(activeDeliveries, DeliveryLocation::join)
+                .flatMapValues(values -> values)
+                .mapValues(value -> computeCandidate(value.location(), value.delivery()))
                 .process(NearDestinationProcessor::new, NearDestinationProcessor.STORE_NAME);
     }
 
     @Bean
-    public BiFunction<KStream<String, CourierLocationUpdated>, KTable<String, ActiveDeliverySnapshot>,
+    public BiFunction<KStream<String, CourierLocationUpdated>, KTable<String, CourierDeliveriesSnapshot>,
             KStream<String, DeliveryArrived>> arrivedDetection() {
         return (locationPings, activeDeliveries) -> locationPings
-                .join(activeDeliveries, GeofenceDetectionTopology::computeCandidate)
+                .join(activeDeliveries, DeliveryLocation::join)
+                .flatMapValues(values -> values)
+                .mapValues(value -> computeCandidate(value.location(), value.delivery()))
                 .process(ArrivedProcessor::new, ArrivedProcessor.STORE_NAME);
     }
 

@@ -28,16 +28,19 @@ import java.util.UUID;
  */
 public class EtaMaterialChangeProcessor implements Processor<String, EtaCandidate, String, DeliveryEtaUpdated> {
 
+    static final String PING_STORE = "eta-last-ping-per-delivery";
     static final String STORE_NAME = "last-eta-per-delivery";
     static final Duration MATERIAL_CHANGE_THRESHOLD = Duration.ofSeconds(60);
 
     private KeyValueStore<String, Long> store;
+    private KeyValueStore<String, Long> lastPing;
     private ProcessorContext<String, DeliveryEtaUpdated> context;
 
     @Override
     public void init(ProcessorContext<String, DeliveryEtaUpdated> context) {
         this.context = context;
         this.store = context.getStateStore(STORE_NAME);
+        this.lastPing = context.getStateStore(PING_STORE);
     }
 
     @Override
@@ -46,6 +49,10 @@ public class EtaMaterialChangeProcessor implements Processor<String, EtaCandidat
         UUID deliveryId = candidate.deliveryId();
         String deliveryKey = deliveryId.toString();
 
+        Long previousPing = lastPing.get(deliveryKey);
+        long captured = candidate.capturedAt().toEpochMilli();
+        if (previousPing != null && captured <= previousPing) return;
+        lastPing.put(deliveryKey, captured);
         Long lastMillis = store.get(deliveryKey);
         Instant lastPublished = lastMillis == null ? null : Instant.ofEpochMilli(lastMillis);
 
