@@ -130,6 +130,7 @@ The report requires evidence captured *as work happens*:
 
 - **`/docs/ai-collaboration-log.md`** — humans write the decision and rationale. You may capture raw material (what was prompted, what was generated), but **do not write the accept/reject/modify rationale** — that judgment must come from the team member.
 - **`/docs/decisions/`** — architecture decision records for non-obvious calls
+- Before assigning an ADR number, check the existing decision records on the current branch and open remote branches, then use the next unused number. Recheck before merge when ADR work is happening in parallel.
 - **`/docs/prompts/`** — verbatim prompt (and response) text worth quoting directly in the report, not every prompt. "Notable" is too vague to act on by itself, so save one here **at the moment you'd want to quote it in the report**, using any of these three triggers rather than waiting to judge it later:
   - the prompt behind an **accepted ADR** in `docs/decisions/`
   - a prompt where the AI's first answer was **rejected or modified**, not accepted outright — the log says "Modified," and that back-and-forth is the most interesting Section 5 evidence there is

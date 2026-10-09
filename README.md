@@ -1,5 +1,11 @@
 # FleetFlow
 
+## UC8 — Notifications and status explainer (FR15–FR16)
+
+Notification runs on port 8085. See [the UC8 guide](notification-service/README.md)
+for its inbox and conversational APIs, tests, and the proposed Tracking REST
+contract to connect when the other branches are merged.
+
 ## UC2 — Fleet profiles and load (FR4, FR6)
 
 Fleet runs on port 8082. FR5 shift controls remain a separate team slice.
