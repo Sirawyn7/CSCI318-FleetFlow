@@ -16,7 +16,7 @@ spring:
       # the kafka-streams-binder functions (FR11-FR13) in one definition --
       # Spring Cloud Stream routes each to the correct binder automatically based on
       # its KStream/KTable vs plain-type parameters.
-      definition: deliveryArrivedConsumer;orderPlacedConsumer;courierRegisteredConsumer;orderAssignedConsumer;etaRecalculation;nearDestinationDetection;arrivedDetection;riskDetection
+      definition: deliveryArrivedConsumer;orderPlacedConsumer;courierRegisteredConsumer;orderAssignedConsumer;deliveryEtaProjectionConsumer;etaRecalculation;nearDestinationDetection;arrivedDetection;riskDetection
     stream:
       bindings:
         # --- Regular binder: bootstrap consumers ---
@@ -31,6 +31,10 @@ spring:
           group: tracking-service
         orderAssignedConsumer-in-0:
           destination: fleetflow.dispatch.order-assigned
+          group: tracking-service
+        # Tracking projects its own FR11 output into a REST-queryable ETA view (ADR 0016).
+        deliveryEtaProjectionConsumer-in-0:
+          destination: fleetflow.tracking.delivery-eta-updated
           group: tracking-service
         # --- Regular binder: bootstrap publishers ---
         deliveryStarted-out-0:
@@ -96,6 +100,9 @@ spring:
             consumer:
               enableDlq: true
           orderAssignedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          deliveryEtaProjectionConsumer-in-0:
             consumer:
               enableDlq: true
           deliveryStarted-out-0:
