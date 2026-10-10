@@ -16,7 +16,7 @@ the full architecture and hard constraints, and
 | `notification-service` | Service | 8085 | Templated alerts, conversational status explainer (FR15-FR16) |
 | `gps-simulator` | External client | — | Posts simulated location pings to Fleet's REST endpoint (FR10) |
 | `fleetflow-contracts` | Contract artifact | — | Shared event records for the 16-event §6 catalogue |
-| `Kafka` | Broker | 9092 | Event backbone. Order, Fleet and Dispatch have explicit event bindings; Tracking additionally uses the Kafka Streams binder for FR11's ETA topology alongside the regular binder for its bootstrap consumers |
+| `Kafka` | Broker | 9092 | Event backbone. Every service has explicit event bindings; Tracking additionally uses the Kafka Streams binder for its ETA, geofence and risk topologies |
 
 ## Structural exceptions
 
@@ -63,13 +63,11 @@ database file under `<service>/data/`):
 mvn -pl order-service spring-boot:run
 ```
 
-Kafka is a mandated dependency of the project. Fleet and Dispatch now have a real
-binding for `CourierRegistered` (see `docs/decisions/0004-fleetflow-contracts-published-language.md`
-for the pattern); Order also has explicit `OrderPlaced` and `OrderCancelled` output bindings;
-Tracking now has bindings too, on both the regular binder (bootstrap consumers for
-`OrderPlaced`, `CourierRegistered`, `OrderAssigned`) and the Kafka Streams binder (FR11's
-ETA recalculation topology); Notification has no bindings configured, and there's no
-committed Docker Compose setup yet — that's a later commit.
+Kafka is a mandated dependency of the project, and every service needs a broker on
+`localhost:9092` (override with the `KAFKA_BROKERS` environment variable). Each
+service's bindings are listed in its own `application.yml`; the event contracts and
+publishing pattern are described in `docs/decisions/0004-fleetflow-contracts-published-language.md`.
+There's no committed Docker Compose setup yet.
 
 For local development or a manual demo, run a single-node broker yourself, e.g.:
 
@@ -92,6 +90,12 @@ Order runs on port 8081.
 
 Missing orders return 404, invalid input returns 400, and cancellation outside
 `PLACED` returns 409. A repeated cancellation does not publish another event.
+
+Order does not yet consume Dispatch or Tracking events, so an order's status stays
+`PLACED` (or `CANCELLED`) for its whole life, and its history records only those
+transitions. As a result an order can still be cancelled after a courier is
+assigned, and that cancellation does not release the assignment, the courier's load
+or the delivery being tracked.
 
 Items are modeled as a description (1–255 characters) and a positive quantity, e.g.
 `"items":[{"description":"Book","quantity":2}]` in the creation body. If omitted,
@@ -125,9 +129,9 @@ and removes it after the test; the normal suite skips it. No separate Kafka
 installation inside a WSL distribution is required. Do not delete the existing H2
 file to test these changes; tests use isolated in-memory databases.
 
-## UC2 — Fleet profiles and load (FR4, FR6)
+## UC2 — Manage Fleet and Courier Profiles (FR4-FR6)
 
-Fleet runs on port 8082. FR5 shift controls remain a separate team slice.
+Fleet runs on port 8082.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -136,6 +140,7 @@ Fleet runs on port 8082. FR5 shift controls remain a separate team slice.
 | GET | `/api/couriers/{id}` | View profile and active-order count |
 | PUT | `/api/couriers/{id}` | Replace vehicle type, capacity and operating zone |
 | POST | `/api/couriers/{id}/deactivate` | Deactivate a courier with no active orders |
+| PATCH | `/api/couriers/{id}/availability` | Go on/off shift and publish `CourierAvailabilityChanged` |
 
 Registration and update accept, for example:
 
@@ -143,10 +148,13 @@ Registration and update accept, for example:
 {"vehicleType":"VAN","capacity":3,"operatingZone":"ZONE_A"}
 ```
 
+A newly registered courier is not available for dispatch until it goes on shift with
+`{"available":true}` on the availability endpoint (`false` takes it off shift).
+
 GET, PUT and deactivation responses include `activeOrderCount` and `deactivated`.
 Invalid profile values return 400; missing couriers return 404; capacity and
 deactivation conflicts return 409. Deactivation is idempotent and separate from
-FR5's on/off-shift status. Capacity cannot be reduced below current load.
+on/off-shift status. Capacity cannot be reduced below current load.
 
 Fleet consumes `fleetflow.dispatch.order-assigned` and
 `fleetflow.tracking.delivery-completed` in consumer group `fleet-service`.
@@ -160,8 +168,9 @@ an already-published assignment cannot undo Dispatch's decision. Dispatch still
 needs its own assignment capacity checks. Profile updates and deactivation currently
 persist in Fleet only: the existing event catalogue has no profile-update or
 deactivation event, so these changes are not propagated to Dispatch's view in this
-slice. FR5 integration must respect the deactivation flag. Reassignment and
-cancellation load adjustments remain outside this slice, per ADR 0002.
+slice. The availability endpoint does not currently check the deactivation flag, so
+a deactivated courier can still be put back on shift and become visible to Dispatch.
+Reassignment and cancellation load adjustments remain outside this slice, per ADR 0002.
 
 Run all Fleet tests (requires Docker for the real Kafka test):
 
@@ -169,22 +178,24 @@ Run all Fleet tests (requires Docker for the real Kafka test):
 mvn -pl fleet-service -am test
 ```
 
-Run domain, API and H2 persistence tests without Docker:
+Run unit, API and H2 persistence tests without Docker:
 
 ```text
-mvn -pl fleet-service -am test -Dtest=CourierTest,CourierManagementTest,CourierRegistrationServiceTest,CourierControllerTest,CourierPersistenceTest,ContractBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false
+mvn -pl fleet-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-## UC3 — Assign orders to couriers (FR7, FR8)
+## UC3 — Assign Courier to Order (FR7, FR8)
 
 Dispatch runs on port 8083. UC3 is event-driven; it currently has no REST endpoint of
-its own. FR9 (operator-escalation reassignment) is not yet implemented.
+its own. UC4's FR9 (reassignment on exception) is not yet implemented, so nothing
+publishes `OrderReassigned`.
 
 - **FR8** (primary path): on `OrderPlaced`, a LangChain4j agent reasons over the open
   orders backlog and courier availability/load, returning a candidate assignment plus
   justification within a 5-second deadline.
-- **FR7** (fallback): on agent timeout or error, a deterministic rule selects the
-  nearest eligible courier by zone, capacity and proximity.
+- **FR7** (fallback): on agent timeout, error or invalid output, a deterministic rule
+  selects the nearest eligible courier by zone, capacity and proximity. An agent
+  recommendation is also rechecked for eligibility before it is committed.
 
 Every decision — agent or rule-based — is recorded in `assignment_decisions` with the
 path used. Dispatch never calls Fleet synchronously: it maintains its own
@@ -211,7 +222,28 @@ Run unit/regression tests without Docker:
 mvn -pl dispatch-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-## UC6 - Monitor Delivery in Real Time (FR11, FR12, FR13)
+## UC5 — Capture Courier Location (FR10)
+
+The GPS simulator posts location pings to Fleet; it has no direct Kafka access.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/couriers/{id}/location` | Record the courier's latest position and publish `CourierLocationUpdated` |
+
+The body is `{"latitude":-33.8688,"longitude":151.2093}`. Fleet stores only the latest
+position per courier, not a ping history. `CourierLocationUpdated` is keyed by
+courier ID so Tracking's stream-table joins are co-partitioned (see
+[ADR 0010](docs/decisions/0010-fr11-internal-topic-and-rekeying.md)).
+
+The simulator reports for one existing courier and does not register one itself.
+Register a courier first, then run the simulator with its ID (it pings every 5
+seconds by default):
+
+```text
+mvn -pl gps-simulator spring-boot:run "-Dspring-boot.run.arguments=--simulator.courier-id=<registered-courier-uuid>"
+```
+
+## UC6 — Monitor Delivery in Real Time (FR11, FR12, FR13)
 
 Tracking runs on port 8084. Delivery completion/proof is covered by UC7/FR14 below.
 
@@ -266,7 +298,7 @@ mvn -pl tracking-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.fa
 See [ADR 0013](docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md) and
 [the meaningful prompt record](docs/prompts/0010-uc6-completion-and-review.md).
 
-## UC7 — Complete delivery and record proof (FR14)
+## UC7 — Complete Delivery and Record Proof (FR14)
 
 UC7 contains one functional requirement: FR14. Tracking stores the courier's route
 summary and textual receipt confirmation on the Delivery aggregate, alongside the
@@ -326,7 +358,7 @@ mvn -pl tracking-service -am test -Dtest=Fr14EndToEndIntegrationTest -Dsurefire.
 Existing rows remain in transit with null proof until completed. Schema updates add
 nullable columns; do not delete an existing Tracking database.
 
-## UC8 — Notifications and status explainer (FR15–FR16)
+## UC8 — Notify and Explain Delivery Status (FR15, FR16)
 
 Notification runs on port 8085. See [the UC8 guide](notification-service/README.md)
 for its inbox and conversational APIs and tests. Tracking's `GET
