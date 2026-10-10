@@ -1,61 +1,5 @@
 # FleetFlow
 
-## UC8 — Notifications and status explainer (FR15–FR16)
-
-Notification runs on port 8085. See [the UC8 guide](notification-service/README.md)
-for its inbox and conversational APIs, tests, and the proposed Tracking REST
-contract to connect when the other branches are merged.
-
-## UC2 — Fleet profiles and load (FR4, FR6)
-
-Fleet runs on port 8082. FR5 shift controls remain a separate team slice.
-
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/couriers` | Register and publish `CourierRegistered` |
-| GET | `/api/couriers` | List profiles, including deactivated couriers |
-| GET | `/api/couriers/{id}` | View profile and active-order count |
-| PUT | `/api/couriers/{id}` | Replace vehicle type, capacity and operating zone |
-| POST | `/api/couriers/{id}/deactivate` | Deactivate a courier with no active orders |
-
-Registration and update accept, for example:
-
-```json
-{"vehicleType":"VAN","capacity":3,"operatingZone":"ZONE_A"}
-```
-
-GET, PUT and deactivation responses include `activeOrderCount` and `deactivated`.
-Invalid profile values return 400; missing couriers return 404; capacity and
-deactivation conflicts return 409. Deactivation is idempotent and separate from
-FR5's on/off-shift status. Capacity cannot be reduced below current load.
-
-Fleet consumes `fleetflow.dispatch.order-assigned` and
-`fleetflow.tracking.delivery-completed` in consumer group `fleet-service`.
-The load counter, order ledger and processed-event ledger commit together.
-Duplicate events do not double-count; completed orders stay completed even if their
-assignment arrives later. Rejected messages retry then go to the binder's dead-letter
-topics (`error.<source-topic>.fleet-service`) for investigation/replay.
-
-**Integration boundaries:** FR6 protects Fleet's local capacity invariant; consuming
-an already-published assignment cannot undo Dispatch's decision. Dispatch still
-needs its own assignment capacity checks. Profile updates and deactivation currently
-persist in Fleet only: the existing event catalogue has no profile-update or
-deactivation event, so these changes are not propagated to Dispatch's view in this
-slice. FR5 integration must respect the deactivation flag. Reassignment and
-cancellation load adjustments remain outside this slice, per ADR 0002.
-
-Run all Fleet tests (requires Docker for the real Kafka test):
-
-```text
-mvn -pl fleet-service -am test
-```
-
-Run domain, API and H2 persistence tests without Docker:
-
-```text
-mvn -pl fleet-service -am test -Dtest=CourierTest,CourierManagementTest,CourierRegistrationServiceTest,CourierControllerTest,CourierPersistenceTest,ContractBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false
-```
-
 An AI-powered, cloud-native delivery and logistics tracking platform built as a
 Spring Boot microservices system for CSCI318. See [`docs/AGENTS.md`](docs/AGENTS.md) for
 the full architecture and hard constraints, and
@@ -136,15 +80,36 @@ docker run -p 9092:9092 apache/kafka:latest
 (Confirm the current tag on Docker Hub — pin an exact version rather than `latest` for
 anything beyond a one-off local demo.)
 
-## Order slice validation
+## UC1 — Manage Delivery Order (FR1-FR3)
 
-`POST /orders` creates an order (201 and Location header), `GET /orders/{id}` returns
-its response DTO and status history, and `POST /orders/{id}/cancel` cancels a placed
-order. Missing orders return 404, invalid input returns 400, and cancellation outside
-PLACED returns 409. A repeated cancellation does not publish another event.
+Order runs on port 8081.
 
-Run Order and its contract build with `mvn -pl order-service -am verify`. Order tests cover domain validation,
-HTTP contracts, JPA round trips, and rollback of flushed writes when publication fails.
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/orders` | Create an order and publish `OrderPlaced` |
+| GET | `/orders/{id}` | Read status, status history and items |
+| POST | `/orders/{id}/cancel` | Cancel a placed order and publish `OrderCancelled` |
+
+Missing orders return 404, invalid input returns 400, and cancellation outside
+`PLACED` returns 409. A repeated cancellation does not publish another event.
+
+Items are modeled as a description (1–255 characters) and a positive quantity, e.g.
+`"items":[{"description":"Book","quantity":2}]` in the creation body. If omitted,
+`packageDetails` becomes a single item of quantity 1; `packageDetails` itself remains
+the overall package summary either way. Orders created before this slice may have an
+empty item list, since their quantities were never recorded.
+
+See [ADR 0006](docs/decisions/0006-order-status-history-persistence.md) for the
+status-history design, and [ADR 0007](docs/decisions/0007-order-items-and-write-consistency.md)
+for item modeling and the flush-before-publish/cancellation-lock behaviour behind the
+status codes above — including why this does not guarantee exactly-once creation or
+retry idempotency.
+
+Run Order and its contract build:
+
+```text
+mvn -pl order-service -am verify
+```
 
 For the real Kafka test, start Docker Desktop (using its WSL 2 backend on Windows),
 then run:
@@ -155,36 +120,100 @@ wsl --list --verbose
 mvn -pl order-service -am test -Dkafka.integration=true
 ```
 
-Testcontainers starts an isolated `confluentinc/cp-kafka:7.8.0` broker on a random port and
-removes it after the test. It verifies both Order event payloads on their configured
-topics. The Kafka test is opt-in and requires Docker; the normal suite skips it.
-No separate Kafka installation inside a WSL distribution is required.
+Testcontainers starts an isolated `confluentinc/cp-kafka:7.8.0` broker on a random port
+and removes it after the test; the normal suite skips it. No separate Kafka
+installation inside a WSL distribution is required. Do not delete the existing H2
+file to test these changes; tests use isolated in-memory databases.
 
-Order maps its aggregate directly with JPA, following Fleet. Its history is stored in
-`order_status_history`; existing orders retain their original columns. Existing database
-rows have no historical transitions to backfill automatically: the implementation does
-not invent timestamps for old transitions. New orders store their items in `order_items`. Each item has a description (1–255
-characters) and positive integer quantity. Send `"items":[{"description":"Book","quantity":2}]`
-in the creation body. If omitted, package details become one item with quantity 1;
-`packageDetails` remains the overall package summary. Existing database orders are
-preserved and may have an empty item list because their quantities were never recorded.
-The inferred Order lifecycle event consumers still require team agreement. Do not delete the existing H2 file to test these changes; tests use isolated
-in-memory databases.
+## UC2 — Fleet profiles and load (FR4, FR6)
 
-Text fields are limited to 255 characters to match the schema. Saves flush SQL before
-publication, so database constraint violations cannot emit an event first. Cancellation
-locks the order row until transaction completion; a concurrent cancellation waits and
-then sees the committed status. Regression tests cover both behaviours.
+Fleet runs on port 8082. FR5 shift controls remain a separate team slice.
 
-Publication failures roll back database writes. Synchronous Kafka sends surface broker
-errors, but JPA and Kafka are not a distributed transaction: a database commit failure
-after a successful send can still leave an emitted event. Exactly-once creation and
-retry idempotency are not guaranteed by this transaction boundary.
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/couriers` | Register and publish `CourierRegistered` |
+| GET | `/api/couriers` | List profiles, including deactivated couriers |
+| GET | `/api/couriers/{id}` | View profile and active-order count |
+| PUT | `/api/couriers/{id}` | Replace vehicle type, capacity and operating zone |
+| POST | `/api/couriers/{id}/deactivate` | Deactivate a courier with no active orders |
+
+Registration and update accept, for example:
+
+```json
+{"vehicleType":"VAN","capacity":3,"operatingZone":"ZONE_A"}
+```
+
+GET, PUT and deactivation responses include `activeOrderCount` and `deactivated`.
+Invalid profile values return 400; missing couriers return 404; capacity and
+deactivation conflicts return 409. Deactivation is idempotent and separate from
+FR5's on/off-shift status. Capacity cannot be reduced below current load.
+
+Fleet consumes `fleetflow.dispatch.order-assigned` and
+`fleetflow.tracking.delivery-completed` in consumer group `fleet-service`.
+The load counter, order ledger and processed-event ledger commit together.
+Duplicate events do not double-count; completed orders stay completed even if their
+assignment arrives later. Rejected messages retry then go to the binder's dead-letter
+topics (`error.<source-topic>.fleet-service`) for investigation/replay.
+
+**Integration boundaries:** FR6 protects Fleet's local capacity invariant; consuming
+an already-published assignment cannot undo Dispatch's decision. Dispatch still
+needs its own assignment capacity checks. Profile updates and deactivation currently
+persist in Fleet only: the existing event catalogue has no profile-update or
+deactivation event, so these changes are not propagated to Dispatch's view in this
+slice. FR5 integration must respect the deactivation flag. Reassignment and
+cancellation load adjustments remain outside this slice, per ADR 0002.
+
+Run all Fleet tests (requires Docker for the real Kafka test):
+
+```text
+mvn -pl fleet-service -am test
+```
+
+Run domain, API and H2 persistence tests without Docker:
+
+```text
+mvn -pl fleet-service -am test -Dtest=CourierTest,CourierManagementTest,CourierRegistrationServiceTest,CourierControllerTest,CourierPersistenceTest,ContractBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+## UC3 — Assign orders to couriers (FR7, FR8)
+
+Dispatch runs on port 8083. UC3 is event-driven; it currently has no REST endpoint of
+its own. FR9 (operator-escalation reassignment) is not yet implemented.
+
+- **FR8** (primary path): on `OrderPlaced`, a LangChain4j agent reasons over the open
+  orders backlog and courier availability/load, returning a candidate assignment plus
+  justification within a 5-second deadline.
+- **FR7** (fallback): on agent timeout or error, a deterministic rule selects the
+  nearest eligible courier by zone, capacity and proximity.
+
+Every decision — agent or rule-based — is recorded in `assignment_decisions` with the
+path used. Dispatch never calls Fleet synchronously: it maintains its own
+`courier_availability_view`, kept current by consuming `CourierRegistered`,
+`CourierAvailabilityChanged`, `CourierLocationUpdated` and `CourierLoadChanged`.
+Rejected messages retry then go to the binder's dead-letter topics
+(`error.<source-topic>.dispatch-service`) for investigation/replay.
+
+See [ADR 0001](docs/decisions/0001-dispatch-open-orders-backlog.md) for the
+open-orders backlog design, [ADR 0009](docs/decisions/0009-fleet-publishes-courier-load-changed.md)
+for why Dispatch consumes Fleet's load events instead of only the registered ceiling,
+and [ADR 0012](docs/decisions/0012-dispatch-capacity-reservations-and-zones.md) for the
+agent/rule boundary, zone ownership and capacity reservation design.
+
+Run all Dispatch tests (requires Docker for the real Kafka tests):
+
+```text
+mvn -pl dispatch-service -am test
+```
+
+Run unit/regression tests without Docker:
+
+```text
+mvn -pl dispatch-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
+```
 
 ## UC6 - Monitor Delivery in Real Time (FR11, FR12, FR13)
 
-Tracking runs on port 8084. UC6 is event-driven; it currently has no monitoring REST
-endpoint. Delivery completion/proof is covered by UC7/FR14 below.
+Tracking runs on port 8084. Delivery completion/proof is covered by UC7/FR14 below.
 
 - **FR11:** GPS capture time plus Haversine distance / configured vehicle speed gives
   ETA. Publish the first estimate, then changes greater than 60 seconds. Ignore stale
@@ -194,6 +223,14 @@ endpoint. Delivery completion/proof is covered by UC7/FR14 below.
 - **FR13:** rolling event-time GPS observations detect `STATIONARY`, `OFF_PACE` and
   `SLA_BREACH`; publish `DeliveryAtRisk` with delivery/order/courier IDs. Thresholds
   live under `tracking.risk`; repeated reasons have a 10-minute cooldown.
+
+`GET /deliveries/order/{orderId}/status` reports the latest ETA for an order's
+delivery. A `null` `estimatedArrival` means no ETA yet. `riskFlags` is always `null`
+for now — it is reserved for FR13's risk signal, not yet wired into this read model —
+so the explainer cannot mistake that gap for "no risk flags." An order with no
+delivery returns 404 with an error message. See
+[ADR 0016](docs/decisions/0016-tracking-status-read-model.md) for why this is a
+separate read model rather than querying the Streams topology's state store directly.
 
 Tracking bootstraps deliveries from `OrderPlaced`, `CourierRegistered` and
 `OrderAssigned`. Each courier-keyed snapshot contains all deliveries that have neither arrived nor completed.
@@ -226,8 +263,7 @@ Run unit/regression tests without Docker:
 mvn -pl tracking-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-See [UC6 design and review status](docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md),
-[proposed ADR 0013](docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md), and
+See [ADR 0013](docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md) and
 [the meaningful prompt record](docs/prompts/0010-uc6-completion-and-review.md).
 
 ## UC7 — Complete delivery and record proof (FR14)
@@ -289,3 +325,11 @@ mvn -pl tracking-service -am test -Dtest=Fr14EndToEndIntegrationTest -Dsurefire.
 
 Existing rows remain in transit with null proof until completed. Schema updates add
 nullable columns; do not delete an existing Tracking database.
+
+## UC8 — Notifications and status explainer (FR15–FR16)
+
+Notification runs on port 8085. See [the UC8 guide](notification-service/README.md)
+for its inbox and conversational APIs and tests. Tracking's `GET
+/deliveries/order/{orderId}/status` (UC6 above) now matches the contract Notification
+expects; the UC8 guide's own description of it as "proposed, not implemented" needs a
+pass to catch up with that merge.
