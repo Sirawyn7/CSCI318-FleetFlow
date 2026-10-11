@@ -35,12 +35,16 @@ public class CourierLoadService {
                 .orElseThrow(() -> new CourierNotFoundException(courierId));
         if (processed.existsById(eventId)) return;
         CourierOrderLoad load = loads.findById(orderId).orElse(null);
-        if (load != null && !load.getCourierId().equals(courierId)) {
+        if (load != null && load.getCourierId() != null && !load.getCourierId().equals(courierId)) {
             throw new IllegalStateException("Order belongs to another courier; reassignment is outside this slice");
         }
         if (load == null) {
             if (!completed) courier.assignOrder();
             loads.save(new CourierOrderLoad(orderId, courierId, completed));
+        } else if (load.getCourierId() == null) {
+            // Cancellation arrived first: identify the courier for the acknowledgement,
+            // but never restore this terminal order's load.
+            load.identifyCourier(courierId);
         } else if (completed && !load.isCompleted()) {
             courier.completeOrder();
             load.complete();
@@ -49,6 +53,31 @@ public class CourierLoadService {
                 completed ? "DeliveryCompleted" : "OrderAssigned", Instant.now()));
         // Also acknowledge semantic duplicates and completion-before-assignment: a
         // Dispatch reservation must be released even when the counter did not change.
+        loads.flush();
         publisher.publish(courier, orderId);
+    }
+
+    @Transactional
+    public void cancel(UUID eventId, UUID orderId) {
+        Objects.requireNonNull(eventId, "eventId");
+        Objects.requireNonNull(orderId, "orderId");
+        if (processed.existsById(eventId)) return;
+        CourierOrderLoad load = loads.findById(orderId).orElse(null);
+        if (load == null) {
+            // Retain a tombstone even when OrderAssigned has not reached Fleet yet.
+            // The unique key and optimistic version make racing deliveries retry safely.
+            loads.saveAndFlush(new CourierOrderLoad(orderId, null, true));
+        } else if (load.getCourierId() != null) {
+            Courier courier = couriers.findForUpdate(load.getCourierId())
+                    .orElseThrow(() -> new CourierNotFoundException(load.getCourierId()));
+            if (processed.existsById(eventId)) return;
+            if (!load.isCompleted()) {
+                courier.completeOrder();
+                load.complete();
+            }
+            loads.flush();
+            publisher.publish(courier, orderId);
+        }
+        processed.save(new ProcessedEvent(eventId, "OrderCancelled", Instant.now()));
     }
 }

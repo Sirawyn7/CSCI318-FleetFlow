@@ -1,13 +1,16 @@
 # UC8 — Notify and Explain Delivery Status (FR15–FR16)
 
-This slice changes Notification only. Order, Tracking, Fleet, Dispatch and the shared
-contracts are unchanged. Other branches can connect using the contracts below.
+Notification uses the shared lifecycle contracts described below.
 
 ## Implemented
 
-- FR15 consumes the five documented lifecycle events, renders persisted templates,
+- FR15 consumes the five original lifecycle events plus `OrderReassigned` and
+  `AssignmentFailed`, renders persisted templates,
   delivers to a durable **IN_APP inbox**, and publishes the existing NotificationSent
   audit event. No email/SMS provider is required or claimed.
+- Reassignment and assignment-failure messages include the reported reason and use
+  the same recipient lookup, deduplication, inbox and audit pipeline. The reassignment
+  consumer is ready, but Dispatch's FR9 publisher remains unimplemented.
 - FR16 provides conversational questions and follow-ups using LangChain4j AiServices
   and two read-only, order-scoped REST tools. Conversation turns and fallback use are
   persisted. Only the last three turns go to the model; a conversation accepts 50
@@ -93,15 +96,17 @@ the explainer can still report Order facts and that Tracking data is unavailable
 | Event | Template | Correlation |
 |---|---|---|
 | OrderAssigned | ASSIGNED | orderId |
+| OrderReassigned | REASSIGNED | orderId + reason |
+| AssignmentFailed | ASSIGNMENT_FAILED | orderId + reason |
 | DeliveryStarted | IN_TRANSIT | deliveryId + orderId; saves the local link |
 | DeliveryNearDestination | NEAR_DESTINATION | deliveryId; waits for the local link |
 | DeliveryCompleted | DELIVERED | deliveryId + orderId |
 | DeliveryAtRisk | AT_RISK | deliveryId + orderId + riskReason |
 
 Uses the exact existing fleetflow.dispatch.* and fleetflow.tracking.* topic names,
-consumer group notification-service. No inferred consumer edges (such as reassignment
-or ETA notifications) are added. FR13/FR14 must eventually produce their existing
-contracts for at-risk/completed alerts to arrive; this branch does not implement them.
+consumer group notification-service. Reassignment and assignment-failure notifications
+are included by the review fix; ETA notifications remain outside this slice.
+Dispatch's FR9 publisher is still needed for reassignment alerts to arrive.
 
 Invalid input retries and then goes to error.<source-topic>.notification-service.
 Missing links or upstream Order data do not send valid events to the DLQ: their

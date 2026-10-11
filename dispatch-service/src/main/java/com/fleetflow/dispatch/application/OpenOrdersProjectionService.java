@@ -4,6 +4,10 @@ import com.fleetflow.dispatch.infrastructure.persistence.OpenOrderView;
 import com.fleetflow.dispatch.infrastructure.persistence.OpenOrderViewRepository;
 import com.fleetflow.dispatch.infrastructure.persistence.ProcessedEvent;
 import com.fleetflow.dispatch.infrastructure.persistence.ProcessedEventRepository;
+import com.fleetflow.dispatch.infrastructure.persistence.AssignmentRepository;
+import com.fleetflow.dispatch.infrastructure.persistence.CourierAvailabilityViewRepository;
+import com.fleetflow.dispatch.infrastructure.persistence.OrderCancellationState;
+import com.fleetflow.dispatch.infrastructure.persistence.OrderCancellationStateRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,11 +27,20 @@ public class OpenOrdersProjectionService {
 
     private final OpenOrderViewRepository openOrderViewRepository;
     private final ProcessedEventRepository processedEventRepository;
+    private final AssignmentRepository assignments;
+    private final CourierAvailabilityViewRepository couriers;
+    private final OrderCancellationStateRepository cancellations;
 
     public OpenOrdersProjectionService(OpenOrderViewRepository openOrderViewRepository,
-                                        ProcessedEventRepository processedEventRepository) {
+                                        ProcessedEventRepository processedEventRepository,
+                                        AssignmentRepository assignments,
+                                        CourierAvailabilityViewRepository couriers,
+                                        OrderCancellationStateRepository cancellations) {
         this.openOrderViewRepository = openOrderViewRepository;
         this.processedEventRepository = processedEventRepository;
+        this.assignments = assignments;
+        this.couriers = couriers;
+        this.cancellations = cancellations;
     }
 
     @Transactional
@@ -36,7 +49,8 @@ public class OpenOrdersProjectionService {
             // Already applied -- redelivery of the same event, idempotent no-op.
             return;
         }
-        openOrderViewRepository.save(snapshot);
+        var state = lockCancellationState(snapshot.getOrderId());
+        if (!state.isCancelled()) openOrderViewRepository.save(snapshot);
         processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
     }
 
@@ -46,12 +60,27 @@ public class OpenOrdersProjectionService {
             // Already applied -- redelivery of the same event, idempotent no-op.
             return;
         }
-        // deleteById would throw if the row is already absent (e.g. OrderCancelled
-        // arriving for an order this view never saw an OrderPlaced for) -- guard with
-        // existsById so removal is a safe no-op rather than an error.
-        if (openOrderViewRepository.existsById(orderId)) {
+        var state = lockCancellationState(orderId);
+        state.cancel();
+        // Same lock order as assignment commit: order, then courier. If assignment
+        // is committing, wait before looking up the resulting reservation.
+        if (openOrderViewRepository.findForUpdate(orderId).isPresent()) {
             openOrderViewRepository.deleteById(orderId);
         }
+        assignments.findByOrderId(orderId).ifPresent(assignment -> {
+            couriers.findForUpdate(assignment.getCourierId()).orElseThrow();
+            assignment.cancel();
+        });
         processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
+    }
+
+    private OrderCancellationState lockCancellationState(UUID orderId) {
+        return cancellations.findForUpdate(orderId).orElseGet(() -> {
+            var state = new OrderCancellationState(orderId);
+            // An absent row cannot be locked. Competing first inserts conflict on the
+            // primary key and Kafka retries the loser after the winner has committed.
+            cancellations.saveAndFlush(state);
+            return state;
+        });
     }
 }

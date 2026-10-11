@@ -232,3 +232,20 @@ and 3 real-Kafka integration tests.
 **AI assistance:** The assistant proposed draft wording and suggested spelling and terminology corrections; Tenzin supplied the final acceptance and revised paragraph. This records the confirmation on 2026-10-08 and does not establish when the earlier ADR review occurred.
 
 ---
+
+## 2026-10-11 — Missing notifications and cancellation release review (Tenzin)
+**Prompt/context:** Asked the assistant to check and fix missing consumers for
+`OrderReassigned` and `AssignmentFailed`, and cancellation not releasing a held assignment.
+**Proposed by agent:** Add customer notification consumers and templates; release
+Dispatch reservations and Fleet load on `OrderCancelled`, with duplicate and
+out-of-order event protection. Update the requirements matrix and service documentation.
+**Validation:** 128 unit and persistence tests passed, followed by passing targeted
+persistence checks. Kafka integration tests could not run because Docker was unavailable.
+FR9 publication, Order lifecycle status updates and Tracking cancellation remain outstanding.
+**Decision:** Accepted.
+**Rationale:** These changes address both review gaps: customers can receive
+assignment-failure and reassignment notifications, and cancelled orders release
+courier capacity. Duplicate and out-of-order event handling helps prevent incorrect
+load counts. Kafka integration testing still needs verification when Docker is available.
+**Authorship:** Drafted by the assistant; Tenzin explicitly approved the decision
+and rationale in this session.

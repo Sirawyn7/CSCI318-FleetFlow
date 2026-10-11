@@ -17,6 +17,9 @@ public class CourierOrderLoad {
     private UUID orderId;
     private UUID courierId;
     private boolean completed;
+    @jakarta.persistence.Version
+    @jakarta.persistence.Column(columnDefinition = "bigint default 0")
+    private Long version;
 
     protected CourierOrderLoad() {}
     public CourierOrderLoad(UUID orderId, UUID courierId, boolean completed) {
@@ -25,6 +28,7 @@ public class CourierOrderLoad {
         this.completed = completed;
     }
     public UUID getCourierId() { return courierId; }
+    public void identifyCourier(UUID courierId) { this.courierId = courierId; }
     public boolean isCompleted() { return completed; }
     public void complete() { completed = true; }
 }

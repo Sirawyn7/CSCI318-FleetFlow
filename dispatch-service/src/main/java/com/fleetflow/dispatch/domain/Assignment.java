@@ -30,6 +30,14 @@ public class Assignment {
     private Instant assignedAt;
 
     private boolean loadAcknowledged;
+    @jakarta.persistence.Column(columnDefinition = "boolean default false", nullable = false)
+    private boolean cancelled;
+    @jakarta.persistence.Version
+    @jakarta.persistence.Column(columnDefinition = "bigint default 0")
+    private Long version;
+
+    public boolean isCancelled() { return cancelled; }
+    public void cancel() { cancelled = true; }
 
     public boolean isLoadAcknowledged() { return loadAcknowledged; }
     public void acknowledgeLoad() { loadAcknowledged = true; }

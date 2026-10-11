@@ -94,8 +94,11 @@ Missing orders return 404, invalid input returns 400, and cancellation outside
 Order does not yet consume Dispatch or Tracking events, so an order's status stays
 `PLACED` (or `CANCELLED`) for its whole life, and its history records only those
 transitions. As a result an order can still be cancelled after a courier is
-assigned, and that cancellation does not release the assignment, the courier's load
-or the delivery being tracked.
+assigned. Cancellation now marks the Dispatch assignment cancelled, releases its
+pending reservation, and releases Fleet's active load through independent
+`OrderCancelled` consumers. Duplicate and late assignment events cannot restore
+cancelled Fleet load. Tracking cancellation and Order lifecycle status updates
+remain outstanding; the delivery being tracked is not stopped by this change.
 
 Items are modeled as a description (1–255 characters) and a positive quantity, e.g.
 `"items":[{"description":"Book","quantity":2}]` in the creation body. If omitted,
@@ -170,7 +173,8 @@ persist in Fleet only: the existing event catalogue has no profile-update or
 deactivation event, so these changes are not propagated to Dispatch's view in this
 slice. The availability endpoint does not currently check the deactivation flag, so
 a deactivated courier can still be put back on shift and become visible to Dispatch.
-Reassignment and cancellation load adjustments remain outside this slice, per ADR 0002.
+Cancellation load adjustments are now handled by Fleet's `OrderCancelled` consumer.
+Reassignment load adjustments remain outstanding with FR9.
 
 Run all Fleet tests (requires Docker for the real Kafka test):
 

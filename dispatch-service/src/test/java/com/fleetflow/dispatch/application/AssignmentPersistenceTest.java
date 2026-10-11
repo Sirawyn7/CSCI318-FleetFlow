@@ -20,12 +20,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @DataJpaTest
-@Import({AssignmentService.class, BoundedDispatchAgent.class,
+@Import({AssignmentService.class, BoundedDispatchAgent.class, OpenOrdersProjectionService.class,
         CourierLoadProjectionService.class, CourierAvailabilityProjectionService.class,
         AssignmentPersistenceTest.Zones.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class AssignmentPersistenceTest {
     @Autowired AssignmentService service;
+    @Autowired OpenOrdersProjectionService projection;
     @Autowired CourierLoadProjectionService loadService;
     @Autowired CourierAvailabilityProjectionService availabilityService;
     @Autowired CourierAvailabilityViewRepository couriers;
@@ -58,6 +59,62 @@ class AssignmentPersistenceTest {
     private OpenOrderView order() {
         return orders.save(new OpenOrderView(UUID.randomUUID(), UUID.randomUUID(), -34.4, 150.8, -34.5, 150.9,
                 "STANDARD", Instant.now().plusSeconds(3600), Instant.now()));
+    }
+
+    @Test void cancellationReleasesPendingReservationAndRetainsAssignmentHistory() {
+        UUID courierId = courier(1);
+        OpenOrderView first = order();
+        service.attemptAssignment(first);
+        UUID eventId = UUID.randomUUID();
+        projection.applyOrderCancelled(eventId, "OrderCancelled", first.getOrderId());
+        projection.applyOrderCancelled(eventId, "OrderCancelled", first.getOrderId());
+        assertTrue(assignments.findByOrderId(first.getOrderId()).orElseThrow().isCancelled());
+        assertEquals(0, assignments.countByCourierIdAndLoadAcknowledgedFalse(courierId));
+        service.attemptAssignment(order());
+        assertEquals(2, assignments.count());
+    }
+
+    @Test void cancellationBeforePlacementPreventsLateBacklogAndAssignment() {
+        courier(1);
+        OpenOrderView incoming = order();
+        orders.deleteById(incoming.getOrderId());
+        projection.applyOrderCancelled(UUID.randomUUID(), "OrderCancelled", incoming.getOrderId());
+        projection.applyOrderPlaced(UUID.randomUUID(), "OrderPlaced", incoming);
+        service.attemptAssignment(incoming);
+        assertFalse(orders.existsById(incoming.getOrderId()));
+        assertEquals(0, assignments.count());
+    }
+
+    @Test void simultaneousPlacementAndCancellationCannotLeaveAnActiveReservation() throws Exception {
+        UUID courierId = courier(1);
+        for (int i = 0; i < 5; i++) {
+            OpenOrderView incoming = order();
+            orders.deleteById(incoming.getOrderId());
+            UUID placed = UUID.randomUUID(), cancelled = UUID.randomUUID();
+            var start = new CountDownLatch(1);
+            try (var pool = Executors.newFixedThreadPool(2)) {
+                var placement = pool.submit(() -> {
+                    await(start);
+                    retryInsertConflict(() -> projection.applyOrderPlaced(placed, "OrderPlaced", incoming));
+                    service.attemptAssignment(incoming);
+                });
+                var cancellation = pool.submit(() -> {
+                    await(start);
+                    retryInsertConflict(() -> projection.applyOrderCancelled(cancelled, "OrderCancelled", incoming.getOrderId()));
+                });
+                start.countDown();
+                placement.get(10, TimeUnit.SECONDS);
+                cancellation.get(10, TimeUnit.SECONDS);
+            }
+            assertFalse(orders.existsById(incoming.getOrderId()));
+            assertTrue(assignments.findByOrderId(incoming.getOrderId()).map(a -> a.isCancelled()).orElse(true));
+            assertEquals(0, assignments.countByCourierIdAndLoadAcknowledgedFalse(courierId));
+        }
+    }
+
+    private void retryInsertConflict(Runnable action) {
+        try { action.run(); }
+        catch (org.springframework.dao.DataIntegrityViolationException conflict) { action.run(); }
     }
 
     @Test void concurrentOrdersCannotReserveTheSameLastSlot() throws Exception {

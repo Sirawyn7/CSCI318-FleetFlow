@@ -19,10 +19,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 @DataJpaTest
-@Import({NotificationService.class, NotificationDeliveryService.class})
+@Import({NotificationService.class, NotificationDeliveryService.class,
+        com.fleetflow.notification.infrastructure.messaging.LifecycleConsumers.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class NotificationPersistenceTest {
     @Autowired NotificationService service;
+    @Autowired com.fleetflow.notification.infrastructure.messaging.LifecycleConsumers consumers;
     @Autowired NotificationDeliveryService delivery;
     @Autowired NotificationRepository notifications;
     @Autowired ProcessedEventRepository processed;
@@ -32,6 +34,23 @@ class NotificationPersistenceTest {
     @MockitoBean DeliveryDataPort data;
     @MockitoBean NotificationAuditPort audit;
     private final UUID order = UUID.randomUUID(), customer = UUID.randomUUID(), deliveryId = UUID.randomUUID();
+    @Test void assignmentOutcomeConsumersDeliverReasonsWithoutADeliveryLink() {
+        var reassigned = new com.fleetflow.contracts.dispatch.OrderReassigned(
+                new com.fleetflow.contracts.EventEnvelope(UUID.randomUUID(), "OrderReassigned", Instant.now(), "test"),
+                order, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "Courier offline");
+        var failed = new com.fleetflow.contracts.dispatch.AssignmentFailed(
+                new com.fleetflow.contracts.EventEnvelope(UUID.randomUUID(), "AssignmentFailed", Instant.now(), "test"),
+                order, "No available courier");
+        consumers.notifyReassigned().accept(reassigned);
+        consumers.notifyReassigned().accept(reassigned);
+        consumers.notifyAssignmentFailed().accept(failed);
+        consumers.notifyAssignmentFailed().accept(failed);
+        notifications.findAll().forEach(n -> delivery.deliver(n.getId()));
+        var inbox = service.inbox(customer, 0, 20);
+        assertEquals(2, inbox.size());
+        assertTrue(inbox.stream().anyMatch(n -> n.kind() == NotificationKind.REASSIGNED && n.message().contains("Courier offline")));
+        assertTrue(inbox.stream().anyMatch(n -> n.kind() == NotificationKind.ASSIGNMENT_FAILED && n.message().contains("No available courier")));
+    }
     @BeforeEach void setup() {
         notifications.deleteAll(); processed.deleteAll(); links.deleteAll();
         when(data.order(order)).thenAnswer(call -> {
@@ -43,20 +62,20 @@ class NotificationPersistenceTest {
             return null;
         }).when(audit).publish(any());
     }
-    @Test void allFiveTemplatesReachOnlyTheIntendedInboxAndDuplicateIsIgnored() {
+    @Test void allTemplatesReachOnlyTheIntendedInboxAndDuplicateIsIgnored() {
         for (var kind : NotificationKind.values()) {
             UUID event = UUID.randomUUID();
             receive(event, order, deliveryId, kind);
             receive(event, order, deliveryId, kind);
         }
-        assertEquals(5, processed.count()); assertEquals(5, notifications.count());
+        assertEquals(7, processed.count()); assertEquals(7, notifications.count());
         notifications.findAll().forEach(n -> delivery.deliver(n.getId()));
         var inbox = service.inbox(customer, 0, 20);
-        assertEquals(5, inbox.size());
+        assertEquals(7, inbox.size());
         assertTrue(inbox.stream().allMatch(n -> n.message().contains(order.toString())));
         assertTrue(service.inbox(UUID.randomUUID(), 0, 20).isEmpty());
         notifications.findAll().forEach(n -> { delivery.publishAudit(n.getId()); delivery.publishAudit(n.getId()); });
-        verify(audit, times(5)).publish(any());
+        verify(audit, times(7)).publish(any());
     }
     @Test void nearDestinationBeforeStartedIsDurableAndResolvesLater() {
         receive(UUID.randomUUID(), null, deliveryId, NotificationKind.NEAR_DESTINATION);
