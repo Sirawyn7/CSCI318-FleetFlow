@@ -170,7 +170,7 @@ persist in Fleet only: the existing event catalogue has no profile-update or
 deactivation event, so these changes are not propagated to Dispatch's view in this
 slice. The availability endpoint does not currently check the deactivation flag, so
 a deactivated courier can still be put back on shift and become visible to Dispatch.
-Reassignment and cancellation load adjustments remain outside this slice, per ADR 0002.
+UC4 now transfers load on `OrderReassigned`; cancellation load adjustments remain outside this slice.
 
 Run all Fleet tests (requires Docker for the real Kafka test):
 
@@ -186,9 +186,7 @@ mvn -pl fleet-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failI
 
 ## UC3 — Assign Courier to Order (FR7, FR8)
 
-Dispatch runs on port 8083. UC3 is event-driven; it currently has no REST endpoint of
-its own. UC4's FR9 (reassignment on exception) is not yet implemented, so nothing
-publishes `OrderReassigned`.
+Dispatch runs on port 8083. UC3 is event-driven; UC4 also exposes an operator exception queue (below).
 
 - **FR8** (primary path): on `OrderPlaced`, a LangChain4j agent reasons over the open
   orders backlog and courier availability/load, returning a candidate assignment plus
@@ -365,3 +363,52 @@ for its inbox and conversational APIs and tests. Tracking's `GET
 /deliveries/order/{orderId}/status` (UC6 above) now matches the contract Notification
 expects; the UC8 guide's own description of it as "proposed, not implemented" needs a
 pass to catch up with that merge.
+
+
+## UC4 — Handle Delivery Exception (FR9)
+
+Dispatch consumes `DeliveryStarted` to identify active deliveries, and closes its
+exception handling on `DeliveryArrived` or `DeliveryCompleted`. A current courier
+going offline or a `DeliveryAtRisk` with reason `SLA_BREACH` triggers one automatic
+reassignment attempt. Other anomaly reasons and risks from the previous courier
+are ignored. Missing lifecycle prerequisites retry through the binder and then
+require DLQ replay.
+
+The bounded agent remains primary, with the existing five-second limit and rule
+fallback. Candidates must have capacity, location and a zone covering the current
+courier's last known position (the handoff point). Dispatch reserves capacity under
+locks and stores the path and justification, including reassignment fields on the
+original `assignment_decisions` audit row. Historical assignments without saved
+destination details use rules.
+
+**Locked guard:** one attempt per delivery, including an attempt with no eligible
+replacement. Further exceptions are persisted during a 10-minute cooldown measured
+from that attempt. At the boundary, unresolved exceptions enter the durable operator
+queue; there is no second automatic reassignment. A successful reassignment without
+further exceptions does not escalate. Arrival/completion clears the live queue entry.
+
+```text
+GET http://localhost:8083/api/dispatch/exceptions
+```
+
+The queue returns order, delivery and courier IDs, reason, attempt time and escalation
+time. It is a read endpoint for operator triage; manual reassignment is outside FR9.
+A scheduled sweep (`dispatch.exceptions.sweep-ms`, default 1000 ms) recovers pending
+publications, detects offline couriers and escalates due exceptions after restarts.
+Processing can occur after the cooldown boundary when the worker is busy or stopped.
+
+`OrderReassigned` is published from durable assignment state using a stable event ID.
+Publication failure leaves it pending; publication retries cannot consume another
+reassignment. Fleet transfers the order's load between couriers, and Tracking moves
+the existing delivery between courier snapshots, preserving its ID, history and
+promised time. Notification does not yet consume `OrderReassigned`.
+
+See [ADR 0017](docs/decisions/0017-uc4-durable-reassignment-guard.md) for implementation
+choices, cross-service race handling and remaining eventual-consistency limitations.
+
+```text
+# Unit, API and persistence regression tests without Docker
+mvn -pl dispatch-service,fleet-service,tracking-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
+# Real Kafka reassignment test; requires Docker
+mvn -pl dispatch-service -am test -Dtest=DeliveryExceptionIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false
+```

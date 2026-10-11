@@ -9,6 +9,18 @@ import java.util.UUID;
 public interface AssignmentRepository extends JpaRepository<Assignment, UUID> {
 
     Optional<Assignment> findByOrderId(UUID orderId);
+    Optional<Assignment> findByDeliveryId(UUID deliveryId);
 
+    @org.springframework.data.jpa.repository.Query("select count(a) from Assignment a where "
+            + "(a.courierId = :courierId and a.loadAcknowledged = false) or "
+            + "(a.previousCourierId = :courierId and a.previousLoadAcknowledged = false)")
     int countByCourierIdAndLoadAcknowledgedFalse(UUID courierId);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select a from Assignment a where a.orderId = :orderId")
+    Optional<Assignment> findForUpdate(UUID orderId);
+
+    java.util.List<Assignment> findByDeliveryIdIsNotNullAndDeliveryClosedFalse();
+    java.util.List<Assignment> findByReassignedAtIsNotNullAndReassignmentPublishedFalse();
+    java.util.List<Assignment> findByEscalatedAtIsNotNullAndDeliveryClosedFalse();
 }

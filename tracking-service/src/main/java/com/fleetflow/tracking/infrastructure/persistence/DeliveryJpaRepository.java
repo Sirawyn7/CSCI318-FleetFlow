@@ -8,7 +8,7 @@ import java.util.UUID;
 
 public interface DeliveryJpaRepository extends JpaRepository<Delivery, UUID> {
 
-    /** Newest first, so a future reassignment (FR9) that starts a second delivery wins. */
+    /** Newest first for historical data; FR9 transfers the existing delivery without changing its ID. */
     Optional<Delivery> findFirstByOrderIdOrderByStartedAtDesc(UUID orderId);
 
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)

@@ -37,7 +37,9 @@ public class CourierLoadProjectionService {
                 // Keep Fleet's authoritative load; there is no local reservation to release.
                 log.warn("Applied load for courier {} without local assignment for order {}", courierId, orderId);
             } else if (!assignment.getCourierId().equals(courierId)) {
-                throw new IllegalStateException("Load acknowledgement courier mismatch");
+                if (!courierId.equals(assignment.getPreviousCourierId()))
+                    throw new IllegalStateException("Load acknowledgement courier mismatch");
+                assignment.acknowledgePreviousLoad();
             } else {
                 assignment.acknowledgeLoad();
             }

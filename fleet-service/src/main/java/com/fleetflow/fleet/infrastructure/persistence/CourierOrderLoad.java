@@ -17,6 +17,7 @@ public class CourierOrderLoad {
     private UUID orderId;
     private UUID courierId;
     private boolean completed;
+    private UUID previousCourierId;
 
     protected CourierOrderLoad() {}
     public CourierOrderLoad(UUID orderId, UUID courierId, boolean completed) {
@@ -27,4 +28,7 @@ public class CourierOrderLoad {
     public UUID getCourierId() { return courierId; }
     public boolean isCompleted() { return completed; }
     public void complete() { completed = true; }
+    public UUID getPreviousCourierId() { return previousCourierId; }
+    public void reassign(UUID replacement) { previousCourierId = courierId; courierId = replacement; }
+    public void rememberPreviousCourier(UUID previous) { previousCourierId = previous; }
 }

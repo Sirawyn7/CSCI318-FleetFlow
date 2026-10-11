@@ -38,6 +38,8 @@ public class DeliveryCompletionService {
                 .orElseThrow(() -> new IllegalStateException("Missing courier projection: " + assignedCourier));
         Delivery delivery = repository.findForCompletion(id)
                 .orElseThrow(() -> new NoSuchElementException("Delivery not found"));
+        if (!assignedCourier.equals(delivery.getCourierId()))
+            throw new IllegalStateException("Delivery was reassigned while locking; retry with current courier");
         if (delivery.complete(courierId, routeSummary, confirmation, Instant.now())) {
             repository.saveAndFlush(delivery);
             // A snapshot failure must occur before the external completion event is emitted.

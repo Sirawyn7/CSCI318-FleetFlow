@@ -17,4 +17,6 @@ public interface AssignmentEventPort {
     void publishOrderAssigned(Assignment assignment);
 
     void publishAssignmentFailed(UUID orderId, String reason);
+
+    void publishOrderReassigned(Assignment assignment);
 }

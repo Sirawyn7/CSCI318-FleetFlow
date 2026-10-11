@@ -16,7 +16,7 @@ spring:
   cloud:
     function:
       # Registers the functional consumer bean(s) below with Spring Cloud Stream.
-      definition: courierRegisteredConsumer;courierAvailabilityChangedConsumer;courierLocationUpdatedConsumer;courierLoadChangedConsumer;orderPlacedConsumer;orderCancelledConsumer
+      definition: deliveryStartedConsumer;deliveryAtRiskConsumer;deliveryCompletedConsumer;deliveryArrivedConsumer;courierRegisteredConsumer;courierAvailabilityChangedConsumer;courierLocationUpdatedConsumer;courierLoadChangedConsumer;orderPlacedConsumer;orderCancelledConsumer
     stream:
       # Semicolon-separated, not comma -- Spring Cloud Function only splits standalone
       # (non-composed) function definitions on ";"; a comma list here silently gets read
@@ -25,6 +25,20 @@ spring:
       # so every dispatch-service instance shares one logical subscription rather than
       # each receiving its own copy of every event.
       bindings:
+        orderReassigned-out-0:
+          destination: fleetflow.dispatch.order-reassigned
+        deliveryStartedConsumer-in-0:
+          destination: fleetflow.tracking.delivery-started
+          group: dispatch-service
+        deliveryAtRiskConsumer-in-0:
+          destination: fleetflow.tracking.delivery-at-risk
+          group: dispatch-service
+        deliveryCompletedConsumer-in-0:
+          destination: fleetflow.tracking.delivery-completed
+          group: dispatch-service
+        deliveryArrivedConsumer-in-0:
+          destination: fleetflow.tracking.delivery-arrived
+          group: dispatch-service
         courierLoadChangedConsumer-in-0:
           destination: fleetflow.fleet.courier-load-changed
           group: dispatch-service
@@ -51,6 +65,21 @@ spring:
         binder:
           brokers: ${KAFKA_BROKERS:localhost:9092}
         bindings:
+          orderReassigned-out-0:
+            producer:
+              sync: true
+          deliveryStartedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          deliveryAtRiskConsumer-in-0:
+            consumer:
+              enableDlq: true
+          deliveryCompletedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          deliveryArrivedConsumer-in-0:
+            consumer:
+              enableDlq: true
           courierAvailabilityChangedConsumer-in-0:
             consumer:
               enableDlq: true
