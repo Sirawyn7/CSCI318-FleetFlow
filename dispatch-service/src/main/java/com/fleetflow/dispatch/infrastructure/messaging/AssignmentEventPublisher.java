@@ -21,6 +21,17 @@ public class AssignmentEventPublisher implements AssignmentEventPort {
 
     private final StreamBridge streamBridge;
 
+    @Override
+    public void publishOrderReassigned(Assignment assignment) {
+        var envelope = new EventEnvelope(assignment.getReassignmentEventId(), "OrderReassigned",
+                assignment.getReassignedAt(), assignment.getOrderId().toString());
+        var event = new com.fleetflow.contracts.dispatch.OrderReassigned(envelope,
+                assignment.getOrderId(), assignment.getPreviousCourierId(), assignment.getCourierId(),
+                assignment.getId(), assignment.getExceptionReason());
+        if (!streamBridge.send("orderReassigned-out-0", event))
+            throw new IllegalStateException("OrderReassigned publication failed");
+    }
+
     public AssignmentEventPublisher(StreamBridge streamBridge) {
         this.streamBridge = streamBridge;
     }

@@ -173,196 +173,56 @@ persist in Fleet only: the existing event catalogue has no profile-update or
 deactivation event, so these changes are not propagated to Dispatch's view in this
 slice. The availability endpoint does not currently check the deactivation flag, so
 a deactivated courier can still be put back on shift and become visible to Dispatch.
-Cancellation load adjustments are now handled by Fleet's `OrderCancelled` consumer.
-Reassignment load adjustments remain outstanding with FR9.
+for its inbox and conversational APIs and tests. Tracking's `GET
+/deliveries/order/{orderId}/status` (UC6 above) now matches the contract Notification
+expects; the UC8 guide's own description of it as "proposed, not implemented" needs a
+pass to catch up with that merge.
 
-Run all Fleet tests (requires Docker for the real Kafka test):
 
-```text
-mvn -pl fleet-service -am test
-```
+## UC4 — Handle Delivery Exception (FR9)
 
-Run unit, API and H2 persistence tests without Docker:
+Dispatch consumes `DeliveryStarted` to identify active deliveries, and closes its
+exception handling on `DeliveryArrived` or `DeliveryCompleted`. A current courier
+going offline or a `DeliveryAtRisk` with reason `SLA_BREACH` triggers one automatic
+reassignment attempt. Other anomaly reasons and risks from the previous courier
+are ignored. Missing lifecycle prerequisites retry through the binder and then
+require DLQ replay.
 
-```text
-mvn -pl fleet-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
-```
+The bounded agent remains primary, with the existing five-second limit and rule
+fallback. Candidates must have capacity, location and a zone covering the current
+courier's last known position (the handoff point). Dispatch reserves capacity under
+locks and stores the path and justification, including reassignment fields on the
+original `assignment_decisions` audit row. Historical assignments without saved
+destination details use rules.
 
-## UC3 — Assign Courier to Order (FR7, FR8)
-
-Dispatch runs on port 8083. UC3 is event-driven; it currently has no REST endpoint of
-its own. UC4's FR9 (reassignment on exception) is not yet implemented, so nothing
-publishes `OrderReassigned`.
-
-- **FR8** (primary path): on `OrderPlaced`, a LangChain4j agent reasons over the open
-  orders backlog and courier availability/load, returning a candidate assignment plus
-  justification within a 5-second deadline.
-- **FR7** (fallback): on agent timeout, error or invalid output, a deterministic rule
-  selects the nearest eligible courier by zone, capacity and proximity. An agent
-  recommendation is also rechecked for eligibility before it is committed.
-
-Every decision — agent or rule-based — is recorded in `assignment_decisions` with the
-path used. Dispatch never calls Fleet synchronously: it maintains its own
-`courier_availability_view`, kept current by consuming `CourierRegistered`,
-`CourierAvailabilityChanged`, `CourierLocationUpdated` and `CourierLoadChanged`.
-Rejected messages retry then go to the binder's dead-letter topics
-(`error.<source-topic>.dispatch-service`) for investigation/replay.
-
-See [ADR 0001](docs/decisions/0001-dispatch-open-orders-backlog.md) for the
-open-orders backlog design, [ADR 0009](docs/decisions/0009-fleet-publishes-courier-load-changed.md)
-for why Dispatch consumes Fleet's load events instead of only the registered ceiling,
-and [ADR 0012](docs/decisions/0012-dispatch-capacity-reservations-and-zones.md) for the
-agent/rule boundary, zone ownership and capacity reservation design.
-
-Run all Dispatch tests (requires Docker for the real Kafka tests):
+**Locked guard:** one attempt per delivery, including an attempt with no eligible
+replacement. Further exceptions are persisted during a 10-minute cooldown measured
+from that attempt. At the boundary, unresolved exceptions enter the durable operator
+queue; there is no second automatic reassignment. A successful reassignment without
+further exceptions does not escalate. Arrival/completion clears the live queue entry.
 
 ```text
-mvn -pl dispatch-service -am test
+GET http://localhost:8083/api/dispatch/exceptions
 ```
 
-Run unit/regression tests without Docker:
+The queue returns order, delivery and courier IDs, reason, attempt time and escalation
+time. It is a read endpoint for operator triage; manual reassignment is outside FR9.
+A scheduled sweep (`dispatch.exceptions.sweep-ms`, default 1000 ms) recovers pending
+publications, detects offline couriers and escalates due exceptions after restarts.
+Processing can occur after the cooldown boundary when the worker is busy or stopped.
+
+`OrderReassigned` is published from durable assignment state using a stable event ID.
+Publication failure leaves it pending; publication retries cannot consume another
+reassignment. Fleet transfers the order's load between couriers, and Tracking moves
+the existing delivery between courier snapshots, preserving its ID, history and
+promised time. Notification does not yet consume `OrderReassigned`.
+
+See [ADR 0017](docs/decisions/0017-uc4-durable-reassignment-guard.md) for implementation
+choices, cross-service race handling and remaining eventual-consistency limitations.
 
 ```text
-mvn -pl dispatch-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
+# Unit, API and persistence regression tests without Docker
+mvn -pl dispatch-service,fleet-service,tracking-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
+# Real Kafka reassignment test; requires Docker
+mvn -pl dispatch-service -am test -Dtest=DeliveryExceptionIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false
 ```
-
-## UC5 — Capture Courier Location (FR10)
-
-The GPS simulator posts location pings to Fleet; it has no direct Kafka access.
-
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/couriers/{id}/location` | Record the courier's latest position and publish `CourierLocationUpdated` |
-
-The body is `{"latitude":-33.8688,"longitude":151.2093}`. Fleet stores only the latest
-position per courier, not a ping history. `CourierLocationUpdated` is keyed by
-courier ID so Tracking's stream-table joins are co-partitioned (see
-[ADR 0010](docs/decisions/0010-fr11-internal-topic-and-rekeying.md)).
-
-The simulator reports for one existing courier and does not register one itself.
-Register a courier first, then run the simulator with its ID (it pings every 5
-seconds by default):
-
-```text
-mvn -pl gps-simulator spring-boot:run "-Dspring-boot.run.arguments=--simulator.courier-id=<registered-courier-uuid>"
-```
-
-## UC6 — Monitor Delivery in Real Time (FR11, FR12, FR13)
-
-Tracking runs on port 8084. Delivery completion/proof is covered by UC7/FR14 below.
-
-- **FR11:** GPS capture time plus Haversine distance / configured vehicle speed gives
-  ETA. Publish the first estimate, then changes greater than 60 seconds. Ignore stale
-  or duplicate timestamps. Speeds are configurable under `tracking.eta.speed-kmh`.
-- **FR12:** publish near-destination at 500 m and arrival at 50 m, once per delivery.
-  The two topics have no cross-topic ordering guarantee (ADR 0011).
-- **FR13:** rolling event-time GPS observations detect `STATIONARY`, `OFF_PACE` and
-  `SLA_BREACH`; publish `DeliveryAtRisk` with delivery/order/courier IDs. Thresholds
-  live under `tracking.risk`; repeated reasons have a 10-minute cooldown.
-
-`GET /deliveries/order/{orderId}/status` reports the latest ETA for an order's
-delivery. A `null` `estimatedArrival` means no ETA yet. `riskFlags` is always `null`
-for now — it is reserved for FR13's risk signal, not yet wired into this read model —
-so the explainer cannot mistake that gap for "no risk flags." An order with no
-delivery returns 404 with an error message. See
-[ADR 0016](docs/decisions/0016-tracking-status-read-model.md) for why this is a
-separate read model rather than querying the Streams topology's state store directly.
-
-Tracking bootstraps deliveries from `OrderPlaced`, `CourierRegistered` and
-`OrderAssigned`. Each courier-keyed snapshot contains all deliveries that have neither arrived nor completed.
-Missing prerequisites cause retries, then the configured DLQ; replay failed assignments
-once their prerequisites exist. GPS arriving before the snapshot is materialized does
-not join; the next ping updates tracking.
-
-The internal topic is now
-`fleetflow.tracking.internal.active-deliveries-by-courier-v2`; it is not a public event.
-Startup republishes existing delivery snapshots from Tracking's database. Do not delete
-local H2 data to migrate. New v2 stream application IDs isolate the changed schema;
-previously published milestones can be emitted again during this upgrade. Old rows
-without promised time have no SLA prediction until populated.
-
-Kafka Streams uses `exactly_once_v2` for its state/output transactions. Consumers
-requiring committed events must use `isolation.level=read_committed`. JPA bootstrap
-and Kafka publication remain separate transactions. Broker transaction support is
-required; a single-node development broker must set its transaction-state replication
-factor and minimum ISR to 1. Integration tests use an isolated Testcontainers broker.
-
-Run all Tracking tests (Docker required):
-
-```text
-mvn -pl tracking-service -am test
-```
-
-Run unit/regression tests without Docker:
-
-```text
-mvn -pl tracking-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
-```
-
-See [ADR 0013](docs/decisions/0013-uc6-windowed-risk-and-delivery-snapshots.md) and
-[the meaningful prompt record](docs/prompts/0010-uc6-completion-and-review.md).
-
-## UC7 — Complete Delivery and Record Proof (FR14)
-
-UC7 contains one functional requirement: FR14. Tracking stores the courier's route
-summary and textual receipt confirmation on the Delivery aggregate, alongside the
-existing start timestamp and a server-generated completion timestamp. The summary
-is courier supplied; it is not reconstructed from GPS points. No photo upload or
-signature storage is required for this slice.
-
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/deliveries/{id}/complete` | Record completion and publish `DeliveryCompleted` |
-| GET | `/api/deliveries/{id}` | Read status, timestamps and proof |
-| GET | `/api/deliveries?orderId={orderId}` | Read delivery history for an order, oldest first |
-
-Find the delivery ID through the order history endpoint after assignment. Complete
-it on port 8084 using the assigned courier ID:
-
-```json
-{
-  "courierId": "<assigned-courier-uuid>",
-  "routeSummary": "Depot via Crown Street to customer drop-off",
-  "confirmation": "Received by Alex at reception"
-}
-```
-
-Text fields must contain 1–255 characters after trimming. Completion returns 200
-with `DELIVERED`, both timestamps and proof. Identical retries preserve the original
-proof and do not republish. Different proof or a mismatched courier returns 409;
-invalid input returns 400; a missing delivery returns 404. An unknown order's history
-is an empty list. The supplied courier ID is checked against the assignment, but
-this API does not authenticate a caller's identity.
-
-Completion locks the courier projection and delivery row, so concurrent retries
-cannot both publish and other snapshot writers cannot restore completed deliveries.
-The internal snapshot is published before the external lifecycle event in both
-bootstrap and completion. Snapshot failure rolls back without emitting that event.
-Kafka and H2 are not an atomic transaction: a database commit failure after a
-successful send can still leave an event published. An external-send failure after
-the snapshot succeeds can temporarily remove a delivery from monitoring until retry
-or recovery repairs it.
-Completed deliveries are removed from FR13's courier-keyed list, preserving other
-active orders. ETA, geofence and risk joins see the change once their tables catch up;
-startup recovery also excludes completed deliveries. See
-[ADR 0014](docs/decisions/0014-FR14-completion-proof.md).
-
-Run Tracking tests without Docker:
-
-```text
-mvn -pl tracking-service -am test "-Dtest=!Fr*EndToEndIntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
-```
-
-Run the FR14 real Kafka integration test with Docker running:
-
-```text
-mvn -pl tracking-service -am test -Dtest=Fr14EndToEndIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false
-```
-
-Existing rows remain in transit with null proof until completed. Schema updates add
-nullable columns; do not delete an existing Tracking database.
-
-## UC8 — Notify and Explain Delivery Status (FR15, FR16)
-
-Notification runs on port 8085. See [the UC8 guide](notification-service/README.md)
-for its inbox and conversational APIs and tests.

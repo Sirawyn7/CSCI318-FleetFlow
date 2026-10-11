@@ -68,7 +68,10 @@ public class RiskDetectionProcessor implements Processor<String, DeliveryLocatio
         arrivalCount.put(key, 0L);
         observations.put(key, observation, time);
         var window = new ArrayList<RiskObservation>();
-        try (var iterator = observations.fetch(key, ping.capturedAt().minus(policy.window()), ping.capturedAt())) {
+        Instant windowStart = ping.capturedAt().minus(policy.window());
+        if (delivery.startedAt().isAfter(windowStart)) windowStart = delivery.startedAt();
+        // Retain the delivery-wide alert cooldown, but never mix movement from different couriers.
+        try (var iterator = observations.fetch(key, windowStart, ping.capturedAt())) {
             while (iterator.hasNext()) window.add(iterator.next().value);
         }
         for (String reason : RiskEvaluationService.evaluate(window, delivery.averageSpeedKmh(), delivery.requestedDeliveryBy(), policy)) {

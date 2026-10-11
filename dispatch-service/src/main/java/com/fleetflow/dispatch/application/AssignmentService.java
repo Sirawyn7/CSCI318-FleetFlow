@@ -99,6 +99,8 @@ public class AssignmentService {
 
             Instant decidedAt = Instant.now();
             var assignment = Assignment.create(orderId, courierId, decidedAt);
+            assignment.rememberDestination(order.getDropoffLatitude(), order.getDropoffLongitude(),
+                    order.getRequestedDeliveryBy(), order.getServiceLevel());
             assignments.save(assignment);
             decisions.save(new AssignmentDecision(orderId, courierId, path, DecisionOutcome.ASSIGNED, reason, decidedAt));
             orders.deleteById(orderId);

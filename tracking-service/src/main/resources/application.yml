@@ -16,9 +16,12 @@ spring:
       # the kafka-streams-binder functions (FR11-FR13) in one definition --
       # Spring Cloud Stream routes each to the correct binder automatically based on
       # its KStream/KTable vs plain-type parameters.
-      definition: deliveryArrivedConsumer;orderPlacedConsumer;courierRegisteredConsumer;orderAssignedConsumer;deliveryEtaProjectionConsumer;etaRecalculation;nearDestinationDetection;arrivedDetection;riskDetection
+      definition: orderReassignedConsumer;deliveryArrivedConsumer;orderPlacedConsumer;courierRegisteredConsumer;orderAssignedConsumer;deliveryEtaProjectionConsumer;etaRecalculation;nearDestinationDetection;arrivedDetection;riskDetection
     stream:
       bindings:
+        orderReassignedConsumer-in-0:
+          destination: fleetflow.dispatch.order-reassigned
+          group: tracking-service
         # --- Regular binder: bootstrap consumers ---
         deliveryArrivedConsumer-in-0:
           destination: fleetflow.tracking.delivery-arrived
@@ -87,6 +90,9 @@ spring:
         # or IntelliJ's config metadata (correctly) flags it as unresolvable and Spring
         # silently ignores it at runtime instead of actually enabling a DLQ.
         bindings:
+          orderReassignedConsumer-in-0:
+            consumer:
+              enableDlq: true
           deliveryCompleted-out-0:
             producer:
               sync: true

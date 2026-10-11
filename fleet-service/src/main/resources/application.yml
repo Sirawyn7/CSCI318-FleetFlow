@@ -15,50 +15,6 @@ spring:
       enabled: true
   cloud:
     function:
-      definition: orderAssignedConsumer;deliveryCompletedConsumer;orderCancelledConsumer
-    stream:
-      # Binding name convention: <eventName-camelCase>-out-0, one binding per published
-      # event. Used imperatively via StreamBridge.send(bindingName, event) rather than a
-      # Supplier bean, since publishing is triggered by a REST call, not polled.
-      bindings:
-        orderCancelledConsumer-in-0:
-          destination: fleetflow.order.order-cancelled
-          group: fleet-service
-        courierLoadChanged-out-0:
-          destination: fleetflow.fleet.courier-load-changed
-        orderAssignedConsumer-in-0:
-          destination: fleetflow.dispatch.order-assigned
-          group: fleet-service
-        deliveryCompletedConsumer-in-0:
-          destination: fleetflow.tracking.delivery-completed
-          group: fleet-service
-        courierAvailabilityChanged-out-0:
-          destination: fleetflow.fleet.courier-availability-changed
-        courierLocationUpdated-out-0:
-          destination: fleetflow.fleet.courier-location-updated
-        courierRegistered-out-0:
-          destination: fleetflow.fleet.courier-registered
-      kafka:
-        bindings:
-          orderCancelledConsumer-in-0:
             consumer:
               enableDlq: true
-          courierLoadChanged-out-0:
-            producer:
-              sync: true
-          orderAssignedConsumer-in-0:
-            consumer:
-              enableDlq: true
-          deliveryCompletedConsumer-in-0:
-            consumer:
-              enableDlq: true
-          # FR11: this binding now sends a Kafka record key (courierId, see
-          # CourierLocationUpdatedEventPublisher's Javadoc) -- without an explicit key
-          # serializer the default binder config assumes a byte[] key and this would fail
-          # to serialize the String key at runtime.
-          courierLocationUpdated-out-0:
-            producer:
-              configuration:
-                key.serializer: org.apache.kafka.common.serialization.StringSerializer
-        binder:
-          brokers: ${KAFKA_BROKERS:localhost:9092}
+          orderReassignedConsumer-in-0:
