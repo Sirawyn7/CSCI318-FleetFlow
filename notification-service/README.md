@@ -47,7 +47,7 @@ As with the other coursework APIs, caller identity is not authenticated. custome
 orderId and conversationId are selectors, not authorization. Connect authentication
 and ownership checks before exposing customer data outside the local demo.
 
-## Connecting the other branches later
+## Upstream REST contracts
 
 ### Order REST — existing format
 
@@ -67,7 +67,7 @@ for recipient resolution. The model sees only status and deadline, not addresses
 package data or the customer ID. Notifications remain pending if Order is offline
 or the order is not yet available; no recipient is invented.
 
-### Tracking REST — proposed integration contract, not implemented here
+### Tracking REST — implemented in tracking-service
 
 TRACKING_SERVICE_URL defaults to http://localhost:8084. The configurable
 TRACKING_STATUS_PATH defaults to /deliveries/order/{orderId}/status and expects:
@@ -76,17 +76,24 @@ TRACKING_STATUS_PATH defaults to /deliveries/order/{orderId}/status and expects:
 {
   "orderId":"<order UUID>",
   "estimatedArrival":"2026-10-07T08:10:00Z",
-  "riskFlags":["Courier stationary beyond threshold"],
+  "riskFlags":null,
   "updatedAt":"2026-10-07T07:55:00Z"
 }
 ~~~
 
-Confirm this path and DTO with the Tracking branch or adapt RestDeliveryDataClient.
-No Tracking endpoint or projection is added by UC8. Null ETA means unknown; null
-riskFlags means risk information unavailable; [] means Tracking reports no risk
-flags. updatedAt is the observation time, which the answer exposes to show freshness.
-A 404, connection error, or mismatched orderId is unavailable data. Until connected,
-the explainer can still report Order facts and that Tracking data is unavailable.
+Tracking implements this endpoint using the newest delivery for the order and a
+persisted projection of DeliveryEtaUpdated. No Notification client configuration
+change is needed for the default path. See
+[ADR 0016](../docs/decisions/0016-tracking-status-read-model.md).
+
+A known delivery returns 200 even before an ETA is available; estimatedArrival and
+updatedAt are then null. An order without a Tracking delivery returns 404.
+updatedAt is the ETA event's observation time, which the answer exposes to show
+freshness. Tracking currently always returns null riskFlags: FR13 publishes risk
+alerts, but those alerts are not yet projected into this REST read model. Null means
+risk information unavailable; [] would mean Tracking reports no risk flags.
+A 404, connection error, or mismatched orderId is unavailable data; the explainer
+can still report Order facts when Tracking is unavailable.
 
 ### Existing Kafka contracts
 
