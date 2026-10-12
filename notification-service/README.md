@@ -1,7 +1,8 @@
 # UC8 — Notify and Explain Delivery Status (FR15–FR16)
 
-This slice changes Notification only. Order, Tracking, Fleet, Dispatch and the shared
-contracts are unchanged. Other branches can connect using the contracts below.
+Notification delivers lifecycle alerts to a persisted in-app inbox and provides a
+conversational delivery status explainer. It consumes Dispatch and Tracking events
+and reads Order and Tracking REST APIs using the contracts below.
 
 ## Implemented
 
@@ -107,8 +108,8 @@ can still report Order facts when Tracking is unavailable.
 
 Uses the exact existing fleetflow.dispatch.* and fleetflow.tracking.* topic names,
 consumer group notification-service. No inferred consumer edges (such as reassignment
-or ETA notifications) are added. FR13/FR14 must eventually produce their existing
-contracts for at-risk/completed alerts to arrive; this branch does not implement them.
+or ETA notifications) are added. Tracking's FR13 and FR14 implementations publish
+DeliveryAtRisk and DeliveryCompleted for at-risk and completed alerts, respectively.
 
 Invalid input retries and then goes to error.<source-topic>.notification-service.
 Missing links or upstream Order data do not send valid events to the DLQ: their
@@ -154,7 +155,7 @@ The worker polls every five seconds (notification.worker.poll-ms); disable with
 notification.worker.enabled=false for controlled tests. H2 persists to
 ./data/notificationdb relative to the service working directory.
 
-## Validation without other branches
+## Tests
 
 ~~~text
 mvn -pl notification-service -am test
