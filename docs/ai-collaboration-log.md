@@ -247,3 +247,19 @@ passed, including the remaining Kafka suites. The reviewer could not rerun Kafka
 **Rationale:** These changes fix both issues raised in the review. Customers can now receive notifications when an assignment fails or a delivery is reassigned. Cancelled orders also release the courier's capacity. Duplicate and out-of-order events are handled to keep load counts accurate.
 **Authorship:** Tenzin made the decision and supplied the final revised rationale.
 The assistant provided the initial draft and edited the supporting sections.
+
+---
+
+## 2026-10-12 — FR9 / UC4 review follow-up
+**Prompt/context:** Review requested a durable attempt claim before agent invocation,
+selection of due escalation rows, preservation of no-candidate reasons and README cleanup.
+**AI changes:** Implemented the review corrections and added regression coverage. See
+[ADR 0017](decisions/0017-uc4-durable-reassignment-guard.md) for implementation details.
+**Prompt record:** [Review follow-up excerpt](prompts/0015-uc4-review-corrections.md).
+The original prompt behind ADR 0017 remains to be supplied.
+**Validation:** Full reactor non-integration suite passed (234 tests); the real-Kafka
+`DeliveryExceptionIntegrationTest` passed (1 test) using Docker Desktop on 2026-10-12.
+**Rationale:** An AI-authored draft was added to ADR 0017 at Tenzin's request;
+it is not recorded as a human-written acceptance rationale.
+**Authorship:** AI-recorded implementation evidence at the user's explicit request;
+this entry does not assert human acceptance of the corrections.

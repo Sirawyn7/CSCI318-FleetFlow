@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Objects;
 
 @Service
 public class CourierLoadService {
@@ -38,6 +39,38 @@ public class CourierLoadService {
                 .orElseThrow(() -> new CourierNotFoundException(courierId));
         if (processed.existsById(eventId)) return;
         CourierOrderLoad load = loads.findById(orderId).orElse(null);
+        if (load != null && load.getCourierId() != null && !load.getCourierId().equals(owner))
+            throw new IllegalStateException("Load owner changed while locking; retry");
+        if (load != null && load.getCourierId() != null && !load.getCourierId().equals(courierId)) {
+            if (!completed && courierId.equals(load.getPreviousCourierId())) {
+                processed.save(new ProcessedEvent(eventId, "OrderAssigned", Instant.now()));
+                publisher.publish(courier, orderId);
+                return;
+            }
+            if (completed && courierId.equals(load.getPreviousCourierId())) {
+                var current = couriers.findById(owner).orElseThrow();
+                if (!load.isCompleted()) { current.completeOrder(); load.complete(); }
+                processed.save(new ProcessedEvent(eventId, "DeliveryCompleted", Instant.now()));
+                publisher.publish(current, orderId);
+                return;
+            }
+            throw new IllegalStateException("Order belongs to another courier");
+        }
+        if (load == null) {
+            if (!completed) courier.assignOrder();
+            loads.save(new CourierOrderLoad(orderId, courierId, completed));
+        } else if (load.getCourierId() == null) {
+            // A cancellation tombstone never regains load through late assignment events.
+            load.identifyCourier(courierId);
+        } else if (completed && !load.isCompleted()) {
+            courier.completeOrder();
+            load.complete();
+        }
+        processed.save(new ProcessedEvent(eventId,
+                completed ? "DeliveryCompleted" : "OrderAssigned", Instant.now()));
+        // Also acknowledge semantic duplicates and completion-before-assignment: a
+        // Dispatch reservation must be released even when the counter did not change.
+        publisher.publish(courier, orderId);
     }
 
     @Transactional
@@ -56,6 +89,9 @@ public class CourierLoadService {
             load.reassign(replacement);
             newCourier.assignOrder();
             loads.save(load);
+        } else if (load.getCourierId() == null) {
+            // Cancellation arrived before either assignment event. Acknowledge both
+            // couriers without acquiring load or discarding the terminal tombstone.
         } else if (!load.isCompleted() && load.getCourierId().equals(previous)) {
             newCourier.assignOrder();
             oldCourier.completeOrder();
@@ -63,7 +99,33 @@ public class CourierLoadService {
         } else if (!load.getCourierId().equals(previous) && !load.getCourierId().equals(replacement)) {
             throw new IllegalStateException("Unexpected assignment owner");
         }
-        if (load.getCourierId().equals(replacement)) load.rememberPreviousCourier(previous);
+        if (replacement.equals(load.getCourierId())) load.rememberPreviousCourier(previous);
         processed.save(new ProcessedEvent(eventId, "OrderReassigned", Instant.now()));
         publisher.publish(oldCourier, orderId);
         publisher.publish(newCourier, orderId);
+    }
+
+    @Transactional
+    public void cancel(UUID eventId, UUID orderId) {
+        Objects.requireNonNull(eventId, "eventId");
+        Objects.requireNonNull(orderId, "orderId");
+        if (processed.existsById(eventId)) return;
+        CourierOrderLoad load = loads.findById(orderId).orElse(null);
+        if (load == null) {
+            // Retain a tombstone even when OrderAssigned has not reached Fleet yet.
+            // The unique key and optimistic version make racing deliveries retry safely.
+            loads.saveAndFlush(new CourierOrderLoad(orderId, null, true));
+        } else if (load.getCourierId() != null) {
+            Courier courier = couriers.findForUpdate(load.getCourierId())
+                    .orElseThrow(() -> new CourierNotFoundException(load.getCourierId()));
+            if (processed.existsById(eventId)) return;
+            if (!load.isCompleted()) {
+                courier.completeOrder();
+                load.complete();
+            }
+            loads.flush();
+            publisher.publish(courier, orderId);
+        }
+        processed.save(new ProcessedEvent(eventId, "OrderCancelled", Instant.now()));
+    }
+}

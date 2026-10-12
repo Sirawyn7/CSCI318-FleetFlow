@@ -98,7 +98,10 @@ public class Assignment {
     /** The aggregate owns the lifetime retry budget; changing couriers never resets it. */
     public void recordException(String reason, Instant now) {
         if (!isDeliveryActive() || escalatedAt != null) return;
-        pendingException = java.util.Objects.requireNonNull(reason);
+        java.util.Objects.requireNonNull(reason);
+        // Repeated base signals must not erase the diagnostic outcome of the attempt.
+        if (pendingException == null || !pendingException.contains(":") || reason.contains(":"))
+            pendingException = reason;
         escalateIfDue(now);
     }
 

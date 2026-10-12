@@ -75,8 +75,45 @@ class DeliveryExceptionPersistenceTest {
         assertNull(attempted.getReassignedAt());
         courier(true, 2); service.checkOffline(a.getOrderId());
         assertNull(reload(a).getReassignedAt());
+        assertEquals("COURIER_OFFLINE: NO_ELIGIBLE_COURIER", reload(a).getPendingException());
         service.escalateDue(a.getOrderId(), attempted.getExceptionAttemptedAt().plusSeconds(600));
         assertEquals(1, service.operatorQueue().size());
+        assertEquals("COURIER_OFFLINE: NO_ELIGIBLE_COURIER", service.operatorQueue().getFirst().reason());
+    }
+    @Test void offlineSweepCannotCallAgentWhileConsumerAttemptIsInFlight() throws Exception {
+        var a = active(courier(false, 2)); UUID replacement = courier(true, 2);
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        doAnswer(call -> {
+            entered.countDown();
+            if (!release.await(4, TimeUnit.SECONDS)) throw new IllegalStateException("Test timed out");
+            return new AgentRecommendation(a.getOrderId(), replacement, "Available replacement");
+        }).when(agent).recommend(any());
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            var first = executor.submit(() -> service.offline(a.getCourierId()));
+            try {
+                assertTrue(entered.await(2, TimeUnit.SECONDS));
+                assertNotNull(reload(a).getExceptionAttemptedAt());
+                service.checkOffline(a.getOrderId());
+                verify(agent, times(1)).recommend(any());
+            } finally { release.countDown(); }
+            first.get(5, TimeUnit.SECONDS);
+        }
+        assertEquals(replacement, reload(a).getCourierId());
+        verify(agent, times(1)).recommend(any());
+    }
+
+    @Test void escalationQueryExcludesIneligibleRowsAndIncludesExactBoundary() {
+        var a = active(courier(false, 1)); service.checkOffline(a.getOrderId());
+        var attempted = reload(a).getExceptionAttemptedAt();
+        active(courier(true, 1)); // active but no pending attempt
+        assertTrue(assignments.findEscalationCandidates(attempted.minusSeconds(1)).isEmpty());
+        assertEquals(a.getOrderId(), assignments.findEscalationCandidates(attempted).getFirst().getOrderId());
+        service.escalateDue(a.getOrderId(), attempted.plusSeconds(600));
+        assertTrue(assignments.findEscalationCandidates(attempted).isEmpty());
+        var closed = active(courier(false, 1)); service.checkOffline(closed.getOrderId());
+        service.closed(closed.getOrderId(), closed.getDeliveryId());
+        assertTrue(assignments.findEscalationCandidates(Instant.now()).isEmpty());
     }
     @Test void agentPrimaryAndIrrelevantOrClosedDeliveryRisksAreIgnored() {
         var a = active(courier(true, 2)); UUID replacement = courier(true, 2);

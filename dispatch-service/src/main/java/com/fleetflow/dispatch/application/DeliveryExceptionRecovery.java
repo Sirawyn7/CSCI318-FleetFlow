@@ -24,8 +24,12 @@ public class DeliveryExceptionRecovery {
         for (var a : assignments.findByDeliveryIdIsNotNullAndDeliveryClosedFalse()) {
             try {
                 service.checkOffline(a.getOrderId());
-                service.escalateDue(a.getOrderId(), Instant.now());
             } catch (RuntimeException e) { log.warn("Exception recovery pending for {}", a.getOrderId(), e); }
+        }
+        Instant now = Instant.now();
+        for (var a : assignments.findEscalationCandidates(now.minusSeconds(600))) {
+            try { service.escalateDue(a.getOrderId(), now); }
+            catch (RuntimeException e) { log.warn("Exception escalation pending for {}", a.getOrderId(), e); }
         }
     }
 }
