@@ -8,9 +8,13 @@ Notification uses the shared lifecycle contracts described below.
   `AssignmentFailed`, renders persisted templates,
   delivers to a durable **IN_APP inbox**, and publishes the existing NotificationSent
   audit event. No email/SMS provider is required or claimed.
-- Reassignment and assignment-failure messages include the reported reason and use
-  the same recipient lookup, deduplication, inbox and audit pipeline. The reassignment
-  consumer is ready, but Dispatch's FR9 publisher remains unimplemented.
+- Reassignment and assignment-failure messages omit internal diagnostic reasons and use
+  the same recipient lookup, deduplication, inbox and audit pipeline. Raw reasons remain
+  in the internal notification record. Legacy persisted assignment templates also use
+  the safe customer wording. Dispatch's publisher is implemented on the open FR9 branch;
+  see the [merge handoff](../docs/fr9-cancellation-merge-handoff.md).
+- Notification kinds and template codes use `VARCHAR(64)`. Hibernate schema update
+  converts the earlier native H2 enum columns, preserving existing rows.
 - FR16 provides conversational questions and follow-ups using LangChain4j AiServices
   and two read-only, order-scoped REST tools. Conversation turns and fallback use are
   persisted. Only the last three turns go to the model; a conversation accepts 50
@@ -106,7 +110,7 @@ the explainer can still report Order facts and that Tracking data is unavailable
 Uses the exact existing fleetflow.dispatch.* and fleetflow.tracking.* topic names,
 consumer group notification-service. Reassignment and assignment-failure notifications
 are included by the review fix; ETA notifications remain outside this slice.
-Dispatch's FR9 publisher is still needed for reassignment alerts to arrive.
+The FR9 branch must be integrated for Dispatch reassignment alerts to arrive.
 
 Invalid input retries and then goes to error.<source-topic>.notification-service.
 Missing links or upstream Order data do not send valid events to the DLQ: their

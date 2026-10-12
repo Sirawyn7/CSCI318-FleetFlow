@@ -2,6 +2,8 @@ package com.fleetflow.notification.infrastructure.persistence;
 
 import com.fleetflow.notification.domain.NotificationKind;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -14,7 +16,8 @@ public class NotificationRecord {
     private UUID orderId;
     private UUID deliveryId;
     private UUID recipientId;
-    @Enumerated(EnumType.STRING) @Column(nullable = false) private NotificationKind kind;
+    @Enumerated(EnumType.STRING) @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(nullable = false, length = 64) private NotificationKind kind;
     @Column(length = 2000) private String reason;
     @Column(length = 4000) private String body;
     @Column(length = 1000) private String correlationId;

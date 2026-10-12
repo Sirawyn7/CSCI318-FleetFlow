@@ -34,13 +34,24 @@ class NotificationPersistenceTest {
     @MockitoBean DeliveryDataPort data;
     @MockitoBean NotificationAuditPort audit;
     private final UUID order = UUID.randomUUID(), customer = UUID.randomUUID(), deliveryId = UUID.randomUUID();
-    @Test void assignmentOutcomeConsumersDeliverReasonsWithoutADeliveryLink() {
+    @Test void legacyPersistedAssignmentTemplatesCannotExposeDiagnostics() {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            for (var kind : List.of(NotificationKind.REASSIGNED, NotificationKind.ASSIGNMENT_FAILED)) {
+                var template = new NotificationTemplate(kind);
+                org.springframework.test.util.ReflectionTestUtils.setField(template, "body",
+                        "Order {orderId}. Reason: {reason}");
+                templates.saveAndFlush(template);
+            }
+        });
+        assignmentOutcomeConsumersHideDiagnosticsWithoutADeliveryLink();
+    }
+    @Test void assignmentOutcomeConsumersHideDiagnosticsWithoutADeliveryLink() {
         var reassigned = new com.fleetflow.contracts.dispatch.OrderReassigned(
                 new com.fleetflow.contracts.EventEnvelope(UUID.randomUUID(), "OrderReassigned", Instant.now(), "test"),
-                order, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "Courier offline");
+                order, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "COURIER_OFFLINE");
         var failed = new com.fleetflow.contracts.dispatch.AssignmentFailed(
                 new com.fleetflow.contracts.EventEnvelope(UUID.randomUUID(), "AssignmentFailed", Instant.now(), "test"),
-                order, "No available courier");
+                order, "Agent timed out; no available courier with known location, remaining capacity and a matching zone");
         consumers.notifyReassigned().accept(reassigned);
         consumers.notifyReassigned().accept(reassigned);
         consumers.notifyAssignmentFailed().accept(failed);
@@ -48,8 +59,8 @@ class NotificationPersistenceTest {
         notifications.findAll().forEach(n -> delivery.deliver(n.getId()));
         var inbox = service.inbox(customer, 0, 20);
         assertEquals(2, inbox.size());
-        assertTrue(inbox.stream().anyMatch(n -> n.kind() == NotificationKind.REASSIGNED && n.message().contains("Courier offline")));
-        assertTrue(inbox.stream().anyMatch(n -> n.kind() == NotificationKind.ASSIGNMENT_FAILED && n.message().contains("No available courier")));
+        assertTrue(inbox.stream().anyMatch(n -> n.kind() == NotificationKind.REASSIGNED && n.message().equals("A different courier has been assigned to order " + order + ".")));
+        assertTrue(inbox.stream().anyMatch(n -> n.kind() == NotificationKind.ASSIGNMENT_FAILED && n.message().equals("We could not assign a courier to order " + order + ".")));
     }
     @BeforeEach void setup() {
         notifications.deleteAll(); processed.deleteAll(); links.deleteAll();

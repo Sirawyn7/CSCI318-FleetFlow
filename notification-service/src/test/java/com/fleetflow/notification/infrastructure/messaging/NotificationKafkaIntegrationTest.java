@@ -56,8 +56,8 @@ class NotificationKafkaIntegrationTest {
         assertTrue(bridge.send(Topics.DELIVERY_AT_RISK, risk)); awaitEvent(risk.envelope().eventId());
         assertTrue(bridge.send(Topics.DELIVERY_COMPLETED, complete)); awaitEvent(complete.envelope().eventId());
         var reassigned = new OrderReassigned(envelope("OrderReassigned"), order, courier,
-                UUID.randomUUID(), UUID.randomUUID(), "Courier offline");
-        var failed = new AssignmentFailed(envelope("AssignmentFailed"), order, "No available courier");
+                UUID.randomUUID(), UUID.randomUUID(), "COURIER_OFFLINE");
+        var failed = new AssignmentFailed(envelope("AssignmentFailed"), order, "Agent timed out; no available courier with known location, remaining capacity and a matching zone");
         assertTrue(bridge.send(Topics.ORDER_REASSIGNED, reassigned)); awaitEvent(reassigned.envelope().eventId());
         assertTrue(bridge.send(Topics.ASSIGNMENT_FAILED, failed)); awaitEvent(failed.envelope().eventId());
         assertTrue(bridge.send(Topics.ORDER_REASSIGNED, reassigned));
@@ -68,8 +68,8 @@ class NotificationKafkaIntegrationTest {
         assertEquals(8, notifications.count()); assertEquals(8, processed.count());
         notifications.findAll().forEach(n -> delivery.deliver(n.getId()));
         assertEquals(8, service.inbox(customer, 0, 20).size());
-        assertTrue(service.inbox(customer, 0, 20).stream().anyMatch(n -> n.message().contains("Courier offline")));
-        assertTrue(service.inbox(customer, 0, 20).stream().anyMatch(n -> n.message().contains("No available courier")));
+        assertTrue(service.inbox(customer, 0, 20).stream().anyMatch(n -> n.message().equals("A different courier has been assigned to order " + order + ".")));
+        assertTrue(service.inbox(customer, 0, 20).stream().anyMatch(n -> n.message().equals("We could not assign a courier to order " + order + ".")));
         notifications.findAll().forEach(n -> delivery.publishAudit(n.getId()));
         var config = new HashMap<String, Object>();
         config.put("bootstrap.servers", KAFKA.getBootstrapServers()); config.put("group.id", "audit-test-" + UUID.randomUUID());
