@@ -77,13 +77,20 @@ public class DeliveryExceptionService {
         }
         if (!deliveryId.equals(a.getDeliveryId()) || !courierId.equals(a.getCourierId())
                 || occurredAt.isBefore(a.getReassignedAt() == null ? a.getAssignedAt() : a.getReassignedAt())) return;
-        if (a.getExceptionAttemptedAt() != null) {
-            transaction.executeWithoutResult(s -> {
-                var locked = required(orderId);
-                if (locked.getCourierId().equals(courierId)) locked.recordException(reason, Instant.now());
-            });
-            return;
-        }
+        boolean claimed = Boolean.TRUE.equals(transaction.execute(s -> {
+            var locked = required(orderId);
+            if (!locked.isDeliveryActive() || !deliveryId.equals(locked.getDeliveryId())
+                    || !courierId.equals(locked.getCourierId())
+                    || occurredAt.isBefore(locked.getReassignedAt() == null
+                            ? locked.getAssignedAt() : locked.getReassignedAt())) return false;
+            Instant now = Instant.now();
+            locked.recordException(reason, now);
+            if (locked.getExceptionAttemptedAt() != null) return false;
+            // Commit the lifetime budget before calling the agent, including failed/no-outcome attempts.
+            locked.attemptException(now);
+            return true;
+        }));
+        if (!claimed) return;
 
         var current = couriers.findById(courierId).orElseThrow();
         GeoCoordinate handoff = current.getLatitude() == null || current.getLongitude() == null ? null
@@ -108,11 +115,8 @@ public class DeliveryExceptionService {
         transaction.executeWithoutResult(status -> {
             var locked = required(orderId);
             if (!locked.isDeliveryActive() || !locked.getCourierId().equals(courierId)) return;
-            // Concurrent triggers share the same one-attempt budget, including the no-candidate case.
-            if (locked.getExceptionAttemptedAt() != null) return;
+            if (locked.getReassignedAt() != null || locked.getEscalatedAt() != null) return;
             Instant now = Instant.now();
-            locked.recordException(reason, now);
-            locked.attemptException(now);
             for (UUID candidateId : ranked) {
                 var candidate = couriers.findForUpdate(candidateId).orElse(null);
                 if (candidate == null || !snapshot(candidate, handoff).eligibleForTarget()) continue;

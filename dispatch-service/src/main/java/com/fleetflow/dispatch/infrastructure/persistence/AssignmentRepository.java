@@ -21,6 +21,10 @@ public interface AssignmentRepository extends JpaRepository<Assignment, UUID> {
     Optional<Assignment> findForUpdate(UUID orderId);
 
     java.util.List<Assignment> findByDeliveryIdIsNotNullAndDeliveryClosedFalse();
+    @org.springframework.data.jpa.repository.Query("select a from Assignment a where a.deliveryId is not null "
+            + "and a.deliveryClosed = false and a.pendingException is not null "
+            + "and a.exceptionAttemptedAt <= :cutoff and a.escalatedAt is null")
+    java.util.List<Assignment> findEscalationCandidates(java.time.Instant cutoff);
     java.util.List<Assignment> findByReassignedAtIsNotNullAndReassignmentPublishedFalse();
     java.util.List<Assignment> findByEscalatedAtIsNotNullAndDeliveryClosedFalse();
 }

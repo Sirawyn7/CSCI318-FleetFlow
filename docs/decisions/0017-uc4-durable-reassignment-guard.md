@@ -26,13 +26,17 @@ Allow one automated attempt per delivery, then hold unresolved exceptions for a
 10-minute cooldown before escalating to the operator queue. Fleet transfers the
 courier load, while Tracking preserves the existing delivery ID and history.
 
-Accepted by Tenzin. Personal acceptance rationale remains for Tenzin to add.
+## Rationale
+
+Storing the guard on `Assignment` keeps the attempt count saved even if the service restarts. It also prevents multiple triggers from starting duplicate attempts by using the same row lock. Keeping the pending event with this record allows failed publications to be retried without needing extra workflow or outbox tables, since each delivery only gets one automated reassignment attempt.
 
 ## Implementation
 
 - `Assignment` persists the attempt, courier transfer, pending exception and escalation
   state. Row locking serializes triggers; versioning prevents concurrent load
-  acknowledgements from overwriting the guard.
+  acknowledgements from overwriting the guard. The attempt is claimed in a short
+  transaction before the agent call, so overlapping triggers cannot call it twice.
+  A crash after claiming still consumes the budget and leaves a pending exception.
 - The first attempt consumes the budget even if no replacement is available. Unresolved
   exceptions escalate after 600 seconds. Successful reassignment only escalates if
   another exception occurs; it never grants another retry.
@@ -44,6 +48,9 @@ Accepted by Tenzin. Personal acceptance rationale remains for Tenzin to add.
 - `DeliveryStarted` identifies active deliveries; arrival and completion close exception
   handling. Stale risks from a previous courier are ignored. A recovery sweep retries
   publication, detects offline couriers and escalates due exceptions after restarts.
+  Escalation selects only active, pending, attempted, un-escalated rows at least 600
+  seconds old, then rechecks under lock. Repeated base signals preserve a more
+  specific pending reason such as `COURIER_OFFLINE: NO_ELIGIBLE_COURIER`.
 - `GET /api/dispatch/exceptions` exposes the durable operator queue with reasons and
   timestamps. Delivery closure removes the live queue entry.
 - Fleet transfers load once and handles duplicate or reordered events. Tracking keeps
@@ -71,6 +78,18 @@ On 2026-10-11, **191 local tests passed** across regression and follow-up runs
 concurrent triggers, capacity reservations, publication retries, event ordering,
 rollback and delivery identity preservation.
 
-`DeliveryExceptionIntegrationTest` covers offline/SLA events and reassignment through
-real Kafka. It compiled but could not start because Docker was unavailable, so broker
-behavior remains unverified on this machine.
+On 2026-10-12, the full reactor non-integration suite passed: **234 tests**, including
+Dispatch's 76 tests. Added coverage verifies that an offline consumer and recovery
+check share one agent call while the first call is in flight, that the no-candidate
+reason survives repeated offline checks, and that escalation selection respects
+the cooldown boundary and excludes already escalated or closed deliveries.
+
+`DeliveryExceptionIntegrationTest` **passed (1 test, no failures/errors/skips)** on
+2026-10-12 using Docker Desktop and a real Testcontainers Kafka broker
+(`confluentinc/cp-kafka:7.5.0`). This supersedes the earlier Docker-unavailable result.
+Commands: `mvn test '-Dtest=!*IntegrationTest' '-Dsurefire.failIfNoSpecifiedTests=false'`
+and `mvn -pl dispatch-service -am test '-Dtest=DeliveryExceptionIntegrationTest'
+'-Dsurefire.failIfNoSpecifiedTests=false'`.
+
+Review follow-up evidence: [prompt 0015](../prompts/0015-uc4-review-corrections.md).
+The original acceptance prompt remains outstanding.
