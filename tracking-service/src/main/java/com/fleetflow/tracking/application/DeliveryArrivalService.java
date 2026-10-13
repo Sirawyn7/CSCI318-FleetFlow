@@ -31,6 +31,8 @@ public class DeliveryArrivalService {
                 .orElseThrow(() -> new IllegalStateException("Missing courier projection: " + courierId));
         // Load the entity only after locking, avoiding a stale first-level-cache copy.
         var delivery = deliveries.findById(deliveryId).orElseThrow();
+        if (!courierId.equals(delivery.getCourierId()))
+            throw new IllegalStateException("Delivery was reassigned while locking; retry arrival projection");
         delivery.arrive(arrivedAt);
         deliveries.saveAndFlush(delivery);
         // Republish even on replay: a prior database/Kafka partial failure can be repaired.

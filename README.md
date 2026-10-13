@@ -174,7 +174,7 @@ deactivation event, so these changes are not propagated to Dispatch's view in th
 slice. The availability endpoint does not currently check the deactivation flag, so
 a deactivated courier can still be put back on shift and become visible to Dispatch.
 Cancellation load adjustments are now handled by Fleet's `OrderCancelled` consumer.
-Reassignment load adjustments remain outstanding with FR9.
+Reassignment load transfers are handled by Fleet's `OrderReassigned` consumer.
 
 Run all Fleet tests (requires Docker for the real Kafka test):
 
@@ -191,8 +191,9 @@ mvn -pl fleet-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failI
 ## UC3 — Assign Courier to Order (FR7, FR8)
 
 Dispatch runs on port 8083. UC3 is event-driven; it currently has no REST endpoint of
-its own. UC4's FR9 (reassignment on exception) is not yet implemented, so nothing
-publishes `OrderReassigned`.
+its own. UC4 implements reassignment on exception and publishes `OrderReassigned`;
+Notification consumes it to notify the customer. Cancellation releases Dispatch
+reservations and Fleet load and prevents further automated reassignment.
 
 - **FR8** (primary path): on `OrderPlaced`, a LangChain4j agent reasons over the open
   orders backlog and courier availability/load, returning a candidate assignment plus
@@ -224,6 +225,31 @@ Run unit/regression tests without Docker:
 
 ```text
 mvn -pl dispatch-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+## UC4 — Handle Delivery Exception (FR9)
+
+An offline courier or predicted SLA breach triggers one automatic reassignment
+attempt per active delivery, with a five-second agent limit and rule fallback.
+The attempt counts even when no replacement is eligible. Unresolved or subsequent
+exceptions enter the operator queue after a 10-minute cooldown; there is no second
+automatic attempt. Arrival or completion clears the queue entry. Reassignment
+preserves the delivery ID and history and transfers courier load and monitoring.
+
+```text
+GET http://localhost:8083/api/dispatch/exceptions
+```
+
+The queue returns order, delivery and courier IDs, reason, attempt time and escalation
+time. Manual reassignment is outside this slice. See
+[ADR 0017](docs/decisions/0017-uc4-durable-reassignment-guard.md) for design details
+and limitations.
+
+```text
+# Unit, API and persistence regression tests without Docker
+mvn -pl dispatch-service,fleet-service,tracking-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
+# Real Kafka reassignment test; requires Docker
+mvn -pl dispatch-service -am test -Dtest=DeliveryExceptionIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
 ## UC5 — Capture Courier Location (FR10)

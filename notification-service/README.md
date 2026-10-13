@@ -13,8 +13,7 @@ and reads Order and Tracking REST APIs using the contracts below.
 - Reassignment and assignment-failure messages omit internal diagnostic reasons and use
   the same recipient lookup, deduplication, inbox and audit pipeline. Raw reasons remain
   in the internal notification record. Legacy persisted assignment templates also use
-  the safe customer wording. `OrderReassigned` alerts arrive once Dispatch's FR9
-  publisher is merged.
+  the safe customer wording.
 - Notification kinds and template codes use `VARCHAR(64)`. Hibernate schema update
   converts the earlier native H2 enum columns, preserving existing rows.
 - FR16 provides conversational questions and follow-ups using LangChain4j AiServices
