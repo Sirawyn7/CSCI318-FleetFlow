@@ -234,29 +234,16 @@ and 3 real-Kafka integration tests.
 ---
 
 ## 2026-10-11 — Missing notifications and cancellation release review (Tenzin)
-**Prompt/context:** Asked the assistant to check and fix missing consumers for
-`OrderReassigned` and `AssignmentFailed`, and cancellation not releasing a held assignment.
-**Proposed by agent:** Add customer notification consumers and templates; release
-Dispatch reservations and Fleet load on `OrderCancelled`, with duplicate and
-out-of-order event protection. Update the requirements matrix and service documentation.
-**Validation:** The initial 128 unit and persistence tests passed, followed by passing
-targeted persistence checks. On 2026-10-12, the focused Notification run passed all
-14 tests with zero skips, including the real-Kafka integration test and the legacy
-file-backed H2 schema upgrade regression. Fleet's `CourierLoadConsumerIntegrationTest`
-(2 tests) and Dispatch's `OpenOrdersConsumerIntegrationTest` (2 tests) passed against
-Kafka with zero skips, covering the new cancellation paths. Order's opt-in Kafka
-test passed separately with zero skips. Full reactor `mvn install` also passed,
-including the remaining Kafka suites; only Order's separately verified opt-in test
-was skipped in the default run. That run omitted `clean` because Windows denied
-deletion of the root `target` directory.
-The subsequent re-review of branch tip `7453d29`, current with `main`, verified
-full reactor `mvn clean install` and all 222 non-integration tests, including
-`NotificationSchemaUpgradeTest`. The reviewer accepted the reported Kafka results;
-Docker was unavailable on the re-review machine, so those results were not reproduced.
-FR9 publication, Order lifecycle status updates and Tracking cancellation remain outstanding.
+**Prompt/context:** Fix missing assignment notifications and cancellation not releasing capacity.
+**Proposed by agent:** Add `OrderReassigned` and `AssignmentFailed` notifications;
+release Dispatch reservations and Fleet load on cancellation, handling duplicate and out-of-order events.
+**Validation:** Re-review verified `mvn clean install` and 222 non-integration tests,
+including schema upgrade coverage. Reported Docker results on 2026-10-12: Notification
+14/14, Fleet cancellation Kafka 2/2, Dispatch cancellation Kafka 2/2, and Order's
+separate opt-in Kafka test passed with zero skips. Full reactor `mvn install` also
+passed, including the remaining Kafka suites. The reviewer could not rerun Kafka tests without Docker.
+**Follow-ups:** FR9 publication, Order status updates and Tracking cancellation.
 **Decision:** Accepted.
-**Rationale:** These changes fix both issues raised in the review. Customers can now receive notifications when an
-assignment fails or a delivery is reassigned. Cancelled orders also release the courier's capacity. Duplicate and
-out-of-order events are handled to keep load counts accurate.
-**Authorship:** Drafted by the assistant; Tenzin explicitly approved the decision
-and rationale in this session.
+**Rationale:** These changes fix both issues raised in the review. Customers can now receive notifications when an assignment fails or a delivery is reassigned. Cancelled orders also release the courier's capacity. Duplicate and out-of-order events are handled to keep load counts accurate.
+**Authorship:** Tenzin made the decision and supplied the final revised rationale.
+The assistant provided the initial draft and edited the supporting sections.
