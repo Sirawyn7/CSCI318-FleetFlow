@@ -361,7 +361,4 @@ nullable columns; do not delete an existing Tracking database.
 ## UC8 — Notify and Explain Delivery Status (FR15, FR16)
 
 Notification runs on port 8085. See [the UC8 guide](notification-service/README.md)
-for its inbox and conversational APIs and tests. Tracking's `GET
-/deliveries/order/{orderId}/status` (UC6 above) now matches the contract Notification
-expects; the UC8 guide's own description of it as "proposed, not implemented" needs a
-pass to catch up with that merge.
+for its inbox and conversational APIs and tests.
