@@ -191,8 +191,8 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | `CourierLocationUpdated` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11–FR13)* |
 | `CourierLoadChanged` | Fleet | Dispatch *(documented — ADR 0009; UC3 now projects versioned load and acknowledges local reservations)* |
 | `OrderAssigned` | Dispatch | Tracking *(documented — delivery bootstrap)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)*, Order *(inferred — FR2 status)* |
-| `OrderReassigned` | Dispatch | Tracking, Fleet *(implemented in UC4, ADR 0017)*; Notification *(inferred, not implemented)* |
-| `AssignmentFailed` | Dispatch | Order, Notification *(both inferred)* |
+| `OrderReassigned` | Dispatch | Tracking, Fleet *(implemented in UC4, ADR 0017)*; Notification *(implemented on companion `Fix-missing-notifications-and-order-cancellation` branch, pending merge)* |
+| `AssignmentFailed` | Dispatch | Order *(inferred)*; Notification *(implemented on companion `Fix-missing-notifications-and-order-cancellation` branch, pending merge)* |
 | `DeliveryStarted` | Tracking | Dispatch *(UC4 active delivery projection, ADR 0017)*, Order *(inferred — FR2 status)*, Notification *(documented — FR15, "in transit")* |
 | `DeliveryEtaUpdated` | Tracking | Notification *(inferred)* |
 | `DeliveryNearDestination` | Tracking | Notification *(documented — FR15)* |

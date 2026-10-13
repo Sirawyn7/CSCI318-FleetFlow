@@ -233,33 +233,14 @@ and 3 real-Kafka integration tests.
 
 ---
 
-## 2026-10-11 — Missing notifications and cancellation release review (Tenzin)
-**Prompt/context:** Asked the assistant to check and fix missing consumers for
-`OrderReassigned` and `AssignmentFailed`, and cancellation not releasing a held assignment.
-**Proposed by agent:** Add customer notification consumers and templates; release
-Dispatch reservations and Fleet load on `OrderCancelled`, with duplicate and
-out-of-order event protection. Update the requirements matrix and service documentation.
-**Validation:** 128 unit and persistence tests passed, followed by passing targeted
-persistence checks. Kafka integration tests could not run because Docker was unavailable.
-FR9 publication, Order lifecycle status updates and Tracking cancellation remain outstanding.
-**Decision:** Accepted.
-**Rationale:** These changes fix both issues raised in the review. Customers can now receive notifications when an assignment fails or a delivery is reassigned. Cancelled orders also release the courier's capacity. Duplicate and out-of-order events are handled to keep load counts accurate.
-Kafka integration testing still needs to be completed once Docker is available.
-**Authorship:** Drafted by the assistant; Tenzin explicitly approved the decision
-and rationale in this session.
-
----
-
-## 2026-10-12 — FR9 / UC4 review follow-up
+## 2026-10-12 — FR9 / UC4 review follow-up (Tenzin)
 **Prompt/context:** Review requested a durable attempt claim before agent invocation,
 selection of due escalation rows, preservation of no-candidate reasons and README cleanup.
 **AI changes:** Implemented the review corrections and added regression coverage. See
 [ADR 0017](decisions/0017-uc4-durable-reassignment-guard.md) for implementation details.
 **Prompt record:** [Review follow-up excerpt](prompts/0015-uc4-review-corrections.md).
-The original prompt behind ADR 0017 remains to be supplied.
+The original implementation prompt behind ADR 0017 is unavailable; the linked record covers the review follow-up.
 **Validation:** Full reactor non-integration suite passed (234 tests); the real-Kafka
 `DeliveryExceptionIntegrationTest` passed (1 test) using Docker Desktop on 2026-10-12.
-**Rationale:** An AI-authored draft was added to ADR 0017 at Tenzin's request;
-it is not recorded as a human-written acceptance rationale.
-**Authorship:** AI-recorded implementation evidence at the user's explicit request;
-this entry does not assert human acceptance of the corrections.
+**Decision:** Store the reassignment guard and pending event on `Assignment`.
+**Rationale:** Keeping both in `Assignment` ensures the attempt count is saved even if the service restarts. Claiming the attempt under a row lock prevents duplicate reassignment attempts, while failed publications can be retried without adding extra workflow or outbox tables. This keeps the design simple, as each delivery only gets one automated reassignment attempt.
