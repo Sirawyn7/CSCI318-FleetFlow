@@ -194,3 +194,169 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | `OrderReassigned` | Dispatch | Tracking, Fleet *(implemented in UC4, ADR 0017)*; Notification *(documented — FR15, implemented)* |
 | `AssignmentFailed` | Dispatch | Notification *(documented — FR15 review fix)*, Order *(inferred)* |
 | `DeliveryStarted` | Tracking | Dispatch *(UC4 active delivery projection, ADR 0017)*, Order *(inferred — FR2 status)*, Notification *(documented — FR15, "in transit")* |
+| `DeliveryEtaUpdated` | Tracking | Notification *(inferred)* |
+| `DeliveryNearDestination` | Tracking | Notification *(documented — FR15)* |
+| `DeliveryArrived` | Tracking | Dispatch *(UC4 terminal projection, ADR 0017)*, Tracking *(internal arrival persistence/snapshot cleanup — ADR 0013)*, Notification *(inferred)* |
+| `DeliveryAtRisk` | Tracking | Dispatch *(documented — FR9)*, Notification *(documented — FR15)* |
+| `DeliveryCompleted` | Tracking | Dispatch *(UC4 terminal projection, ADR 0017)*, Order *(inferred — FR2)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)* |
+| `NotificationSent` | Notification | none — terminal, audit-only. Worth confirming this is wanted at all rather than assumed. |
+
+Two schema gaps surfaced directly by building this matrix, both raised as ADRs rather than resolved here:
+
+- **Dispatch has no open-orders backlog to reason over for FR8**, despite consuming `OrderPlaced` — see `docs/decisions/0001-dispatch-open-orders-backlog.md` (Dispatch service owner). Resolved: `open_orders_view` is built (§8), consuming `OrderPlaced`/`OrderCancelled`; `OrderAssigned` removal is deferred to FR7/FR8.
+- **Fleet stores the FR6 active-order count on `couriers`**, consuming `OrderAssigned` / `DeliveryCompleted` with transactional event and order ledgers — see `docs/decisions/0002-fleet-active-order-count.md` (Fleet service owner).
+
+---
+
+## 7. Inter-Service Communication (Locked)
+
+**Dispatch → Fleet: local read model, not synchronous REST.**
+Dispatch maintains its own `courier_availability_view`, updated by consuming `CourierRegistered`, `CourierAvailabilityChanged`, `CourierLocationUpdated` and `CourierLoadChanged`. Dispatch never calls Fleet synchronously.
+
+*Rationale for the report:* avoids distributed coupling between bounded contexts — Dispatch continues assigning even if Fleet is unavailable. The trade-off is eventual consistency: the read model may lag by the event propagation delay, acceptable because assignment tolerates a courier position that is seconds stale.
+
+*Implementation note:* `CourierLocationUpdated` is high-frequency. Dispatch's read model should store **latest position per courier only** (compacted view), not a ping history — otherwise the table grows unbounded.
+
+**REST is still used across services**, satisfying the spec's REST requirement:
+- Client → Order, Tracking, Notification (all customer-facing endpoints)
+- GPS Simulator → Fleet (location ingestion, FR10)
+- Notification's explainer agent → Order and Tracking (tool calls, FR16)
+
+---
+
+## 8. Data Ownership
+
+Database-per-service. No shared tables. Cross-context references held as IDs only — never foreign keys into another service's schema.
+
+| Service | Owns |
+|---|---|
+| **Order** | `orders`, `order_items`, `order_status_history`, `processed_events`¹ |
+| **Fleet** | `couriers`, `vehicles`, `availability_windows`, `courier_locations` (current position), `courier_order_load` (FR6 event-order ledger), `processed_events`¹ |
+| **Dispatch** | `assignments`, `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model), `open_orders_view` (derived read model, ADR 0001), `order_cancellation_state` (serializes placement/cancellation and retains tombstones), `processed_events`¹ |
+| **Tracking** | `deliveries`, `delivery_track_points` (delivery-scoped, derived from stream), `eta_snapshots`, `delivery_events`, `processed_events`¹ |
+| **Notification** | `notifications`, `notification_templates`, `agent_conversations`, `processed_events`¹ |
+
+¹ `processed_events` — the idempotency ledger, keyed on `EventEnvelope.eventId()` (see `fleetflow-contracts`). An **infrastructure concern, not a domain entity** — it belongs in `infrastructure/`, never `domain/`, and does not appear in the DDD pattern classification in §9.3. Added here because §8 is a report deliverable compared against the real schema, and a table present in five databases but absent from this table reads as an omission. Every service in this row is a genuine event consumer per the §6.1 matrix, so every service needs one — confirm the exact consuming event set per service as its slice is built, per §6.1.
+
+Note the deliberate distinction between **owned source-of-truth data** (Fleet's `courier_locations`) and **derived read models** (Dispatch's `courier_availability_view`, Tracking's `delivery_track_points`) — worth calling out explicitly in the report as evidence of correct bounded-context isolation.
+
+---
+
+## 9. Report Section Coverage
+
+### 9.1 Microservice Architecture
+Diagram shows five services plus the GPS Simulator, with REST flows (§7) and Kafka event flows (§6) distinguished visually. Data flows traceable end to end: order placement → assignment → location stream → ETA → notification.
+
+### 9.2 Layered Architecture
+Uniform four-layer package structure across all services:
+
+```
+com.fleetflow.<service>
+├── api/            → presentation layer (REST controllers, DTOs)
+├── application/    → service layer (use-case orchestration, transactions)
+├── domain/         → domain layer (entities, value objects, aggregates, domain events, domain services)
+└── infrastructure/ → infrastructure layer (JPA repositories, Kafka producers/consumers, LLM clients)
+```
+
+One package tree and one explanation covers all five services; note per-service variations briefly.
+
+### 9.3 Domain-Driven Design Patterns
+
+| Pattern | Examples |
+|---|---|
+| **Entity** | `Order`, `Courier`, `Delivery`, `Assignment` — identity persists through state change |
+| **Value Object** | `Address`, `GeoCoordinate`, `TimeWindow`, `PackageDimensions`, `Money` — immutable, defined by attributes |
+| **Aggregate** | `Order` (root) + order items + delivery window; `Courier` (root) + vehicle + availability; `Delivery` (root) + track points |
+| **Domain Event** | See §6 catalogue |
+| **Domain Service** | `DispatchAssignmentService`, `EtaCalculationService`, `GeofenceEvaluationService` |
+
+**Write these justifications during implementation, not in Week 9.** Each needs a DDD-principle rationale plus a code snippet.
+
+### 9.4 Data Persistence
+Per §8. Include an ER-style diagram per service plus the ownership table.
+
+### 9.5 Event-Driven Architecture and Stream Processing
+- Spring Cloud Stream bindings over Kafka; events published from the owning aggregate's service
+- Stream queries to document in SQL-like form: ETA recalculation (stream-table join), geofence detection (filter on computed distance), anomaly detection (windowed aggregation per courier)
+- Sample code: Kafka Streams topology, `@Bean Function<KStream<...>, KStream<...>>` binding, producer snippet
+
+### 9.6 Agentic AI Component
+- **Patterns:** tool use / function calling (both agents), ReAct-style reason-then-act (dispatch agent), event-triggered invocation (FR8) vs. conversational request-response (FR16)
+- **Integration:** LangChain4j `AiServices` with `@Tool`-annotated methods
+- **Model (locked):** Google Gemini `gemini-2.0-flash`, via the free Google AI Studio API, for both FR8 and FR16. See `docs/decisions/0005-llm-model-selection.md` for the full option comparison and rationale.
+- **Sample code:** agent interface, tool definition, invoking service, captured input/output pair
+
+The two agents are **structurally different by design** — an event-triggered decision-maker versus a conversational assistant. This is the differentiator in Section 3.6.
+
+### 9.7 Other Important Aspects
+Each item below is **assigned to a work slice** — nothing claimed that nobody is building.
+
+| Aspect | Owner | Slice |
+|---|---|---|
+| Rule-based dispatch fallback + 5s agent timeout | Steven | FR7/FR8 |
+| Reassignment loop guard (1 retry + cooldown) | Steven | FR9 |
+| Idempotent Kafka consumers | All | Own service's consumers |
+| Agent guardrails (constrained tool access, output validation) | Steven, Landon | FR8, FR16 |
+| Testcontainers integration tests against real broker | All | Own slice |
+| Docker Compose single-command local environment | Tenzin | Infrastructure |
+
+---
+
+## 10. AI-Driven Development Process (Report Section 5)
+
+**This has no owner in the current WBS and cannot be reconstructed retrospectively. Start in Week 5.**
+
+Repository structure:
+
+```
+/docs
+  ├── ai-collaboration-log.md      ← running chronological log
+  ├── prompts/                     ← notable prompts worth citing in the report
+  └── decisions/                   ← architecture decision records
+```
+
+**Written by humans, not the coding agent.** The agent may capture raw material (what was prompted, what was generated); the *decision and rationale* must be written by the team member — that judgment is where Section 5's marks are.
+
+Entry format:
+
+```
+## 2026-09-08 — Dispatch aggregate boundary (Steven)
+**Prompt/context:** Asked assistant to model Assignment as part of the Order aggregate.
+**Proposed:** Assignment as a child entity under Order.
+**Decision:** Rejected.
+**Rationale:** Assignment belongs to the Dispatch context; nesting it under Order
+would have leaked dispatch logic across a bounded-context boundary.
+```
+
+Target one entry per person per working session (~15–25 by Week 11). Make it part of each person's **definition of done** for their own slice rather than a shared task that gets deferred.
+
+Also required for the cover page: a **member contribution/accountability log**, maintained from now.
+
+---
+
+## 11. Dependency Status
+
+| Dependency | Status |
+|---|---|
+| Spring Web, Spring Data JPA, H2, Spring Cloud Stream, LangChain4j | Mandated by spec |
+| Apache Kafka | Mandated by spec |
+| **Testcontainers** | **Approved by coordinator** |
+| Kafka Streams binder | Confirm with coordinator (distinct from base Spring Cloud Stream) |
+| Docker / Docker Compose | Confirm with coordinator |
+| Postman / Newman | Confirm with coordinator |
+
+---
+
+## 12. Remaining Open Decisions
+
+1. **Geofence radius and SLA thresholds** — pick defaults now, tune during testing
+
+### Closed since v2
+
+- **LLM model selection** — closed. Google Gemini `gemini-2.0-flash`, via the free
+  Google AI Studio API, for both FR8 and FR16. See
+  `docs/decisions/0005-llm-model-selection.md` and §9.6.
+- **GPS simulator fidelity** — closed. Random-walk, per the Week 5 team discussion. See
+  UC5.
+- **Application name** — closed. *FleetFlow*, no longer a placeholder. See the title
+  block above.

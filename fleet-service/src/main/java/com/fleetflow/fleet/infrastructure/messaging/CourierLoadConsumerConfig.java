@@ -11,8 +11,20 @@ import java.util.function.Consumer;
 @Configuration
 public class CourierLoadConsumerConfig {
     @Bean
-    }
-    @Bean
     public Consumer<com.fleetflow.contracts.dispatch.OrderReassigned> orderReassignedConsumer(CourierLoadService service) {
         return event -> service.reassign(event.envelope().eventId(), event.orderId(),
                 event.previousCourierId(), event.newCourierId());
+    }
+    @Bean
+    public Consumer<OrderCancelled> orderCancelledConsumer(CourierLoadService service) {
+        return event -> service.cancel(event.envelope().eventId(), event.orderId());
+    }
+    @Bean
+    public Consumer<OrderAssigned> orderAssignedConsumer(CourierLoadService service) {
+        return event -> service.apply(event.envelope().eventId(), event.orderId(), event.courierId(), false);
+    }
+    @Bean
+    public Consumer<DeliveryCompleted> deliveryCompletedConsumer(CourierLoadService service) {
+        return event -> service.apply(event.envelope().eventId(), event.orderId(), event.courierId(), true);
+    }
+}

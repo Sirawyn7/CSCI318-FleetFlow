@@ -26,6 +26,18 @@ class ReassignmentGuardTest {
         a.reassign(UUID.randomUUID(), "SLA_BREACH", "AGENT", now);
         a.escalateIfDue(now.plusSeconds(1000)); assertNull(a.getEscalatedAt());
     }
+    @Test void punctuationDoesNotGiveAReasonPriorityOverNoCandidateOutcome() {
+        var a = active();
+        a.recordException("COURIER_OFFLINE: NO_ELIGIBLE_COURIER", now);
+        a.recordException("SLA_BREACH: predicted late arrival", now.plusSeconds(1));
+        assertEquals("COURIER_OFFLINE: NO_ELIGIBLE_COURIER", a.getPendingException());
+    }
+    @Test void colonInAnOrdinaryReasonDoesNotPreventALaterSignal() {
+        var a = active();
+        a.recordException("SLA_BREACH: predicted late arrival", now);
+        a.recordException("COURIER_OFFLINE", now.plusSeconds(1));
+        assertEquals("COURIER_OFFLINE", a.getPendingException());
+    }
     @Test void noCandidateStillConsumesBudgetAndCompletionCancelsPendingEscalation() {
         var a = active(); a.recordException("NO_ELIGIBLE_COURIER", now); a.attemptException(now);
         assertThrows(IllegalStateException.class, () -> a.attemptException(now.plusSeconds(1)));

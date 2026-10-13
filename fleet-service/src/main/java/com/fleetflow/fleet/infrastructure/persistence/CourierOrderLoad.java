@@ -18,3 +18,21 @@ public class CourierOrderLoad {
     private UUID courierId;
     private boolean completed;
     private UUID previousCourierId;
+    @jakarta.persistence.Version
+    @jakarta.persistence.Column(columnDefinition = "bigint default 0")
+    private Long version;
+
+    protected CourierOrderLoad() {}
+    public CourierOrderLoad(UUID orderId, UUID courierId, boolean completed) {
+        this.orderId = orderId;
+        this.courierId = courierId;
+        this.completed = completed;
+    }
+    public UUID getCourierId() { return courierId; }
+    public void identifyCourier(UUID courierId) { this.courierId = courierId; }
+    public boolean isCompleted() { return completed; }
+    public void complete() { completed = true; }
+    public UUID getPreviousCourierId() { return previousCourierId; }
+    public void reassign(UUID replacement) { previousCourierId = courierId; courierId = replacement; }
+    public void rememberPreviousCourier(UUID previous) { previousCourierId = previous; }
+}

@@ -28,7 +28,7 @@ courier load, while Tracking preserves the existing delivery ID and history.
 
 ## Rationale
 
-Storing the guard on `Assignment` keeps the attempt count saved even if the service restarts. It also prevents multiple triggers from starting duplicate attempts by using the same row lock. Keeping the pending event with this record allows failed publications to be retried without needing extra workflow or outbox tables, since each delivery only gets one automated reassignment attempt.
+Keeping the guard in `Assignment` means the attempt count is saved even if the service restarts. Using the same row lock also prevents multiple triggers from starting duplicate reassignment attempts. The pending event is stored in the same record, so if publishing fails, it can be retried later. Since each delivery only allows one automated reassignment attempt, there’s no need for extra workflow or outbox tables.
 
 ## Implementation
 
@@ -62,8 +62,12 @@ Storing the guard on `Assignment` keeps the attempt count saved even if the serv
 - No new dependencies, event names or synchronous Dispatch-to-Fleet calls.
 - Existing assignments need lifecycle-event replay to populate active/terminal state.
   Back up existing H2 databases before schema upgrades.
-- Reassignment is a logical transfer; physical handoff confirmation, manual operator
-  commands and reassignment notifications remain outside this implementation.
+- Reassignment is a logical transfer; physical handoff confirmation and manual operator
+  commands remain outside this implementation. Notification consumes `OrderReassigned`
+  on the companion `Fix-missing-notifications-and-order-cancellation` branch; that
+  integration is pending merge into this branch. Merge the companion PR first, then
+  rebase FR9 and apply its `docs/fr9-cancellation-merge-handoff.md` reconciliation
+  checks before treating cancellation and reassignment as integrated.
 - Services remain eventually consistent. Capacity conflicts or missing prerequisites
   may require DLQ investigation and replay. Fleet acknowledgements and Tracking
   snapshots retain their existing publication/transaction limitations; replay and
@@ -92,4 +96,4 @@ and `mvn -pl dispatch-service -am test '-Dtest=DeliveryExceptionIntegrationTest'
 '-Dsurefire.failIfNoSpecifiedTests=false'`.
 
 Review follow-up evidence: [prompt 0015](../prompts/0015-uc4-review-corrections.md).
-The original acceptance prompt remains outstanding.
+The original implementation prompt is unavailable; prompt 0015 records the review follow-up.

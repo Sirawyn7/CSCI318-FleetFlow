@@ -100,9 +100,15 @@ public class Assignment {
         if (!isDeliveryActive() || escalatedAt != null) return;
         java.util.Objects.requireNonNull(reason);
         // Repeated base signals must not erase the diagnostic outcome of the attempt.
-        if (pendingException == null || !pendingException.contains(":") || reason.contains(":"))
+        if (!isNoEligibleCourierReason(pendingException) || isNoEligibleCourierReason(reason))
             pendingException = reason;
         escalateIfDue(now);
+    }
+
+    private static boolean isNoEligibleCourierReason(String reason) {
+        return "NO_ELIGIBLE_COURIER".equals(reason)
+                || "COURIER_OFFLINE: NO_ELIGIBLE_COURIER".equals(reason)
+                || "SLA_BREACH: NO_ELIGIBLE_COURIER".equals(reason);
     }
 
     public void attemptException(Instant now) {

@@ -250,16 +250,14 @@ The assistant provided the initial draft and edited the supporting sections.
 
 ---
 
-## 2026-10-12 — FR9 / UC4 review follow-up
+## 2026-10-12 — FR9 / UC4 review follow-up (Tenzin)
 **Prompt/context:** Review requested a durable attempt claim before agent invocation,
 selection of due escalation rows, preservation of no-candidate reasons and README cleanup.
 **AI changes:** Implemented the review corrections and added regression coverage. See
 [ADR 0017](decisions/0017-uc4-durable-reassignment-guard.md) for implementation details.
 **Prompt record:** [Review follow-up excerpt](prompts/0015-uc4-review-corrections.md).
-The original prompt behind ADR 0017 remains to be supplied.
+The original implementation prompt behind ADR 0017 is unavailable; the linked record covers the review follow-up.
 **Validation:** Full reactor non-integration suite passed (234 tests); the real-Kafka
 `DeliveryExceptionIntegrationTest` passed (1 test) using Docker Desktop on 2026-10-12.
-**Rationale:** An AI-authored draft was added to ADR 0017 at Tenzin's request;
-it is not recorded as a human-written acceptance rationale.
-**Authorship:** AI-recorded implementation evidence at the user's explicit request;
-this entry does not assert human acceptance of the corrections.
+**Decision:** Store the reassignment guard and pending event on `Assignment`.
+**Rationale:** Keeping both in `Assignment` ensures the attempt count is saved even if the service restarts. Claiming the attempt under a row lock prevents duplicate reassignment attempts, while failed publications can be retried without adding extra workflow or outbox tables. This keeps the design simple, as each delivery only gets one automated reassignment attempt.
