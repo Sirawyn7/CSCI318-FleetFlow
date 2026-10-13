@@ -64,3 +64,10 @@ operators can inspect pending rows and replay malformed events from the Kafka DL
 The in-app channel, extra infrastructure tables, and proposed Tracking DTO should be
 reviewed by the team at integration. Coordinator approval is not implied by this
 decision. No other bounded context is changed.
+
+## Tracking integration follow-up — 2026-10-13
+
+Tracking has implemented the order-scoped REST status contract described above; see
+[ADR 0016](0016-tracking-status-read-model.md). The endpoint exposes the persisted
+ETA projection. Risk flags remain unavailable (`null`): FR13 risk alerts are not yet
+projected into this read model.

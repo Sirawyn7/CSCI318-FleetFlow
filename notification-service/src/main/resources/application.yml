@@ -70,7 +70,7 @@ notification:
   services:
     order-url: ${ORDER_SERVICE_URL:http://localhost:8081}
     tracking-url: ${TRACKING_SERVICE_URL:http://localhost:8084}
-    # Proposed UC8 integration contract; implement/adapt when the Tracking branch is merged.
+    # Tracking's order-scoped delivery status endpoint.
     tracking-path: ${TRACKING_STATUS_PATH:/deliveries/order/{orderId}/status}
   agent:
     api-key: ${GEMINI_API_KEY:}
