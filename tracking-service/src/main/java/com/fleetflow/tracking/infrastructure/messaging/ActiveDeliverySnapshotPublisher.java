@@ -37,7 +37,7 @@ public class ActiveDeliverySnapshotPublisher {
                 deliveries.findByCourierIdAndArrivedAtIsNullAndCompletedAtIsNull(courierId).stream().map(d -> new ActiveDeliverySnapshot(
                         d.getId(), d.getDestination().latitude(), d.getDestination().longitude(),
                         d.getAverageSpeedKmh(), d.getOrderId(), d.getCourierId(),
-                        d.getRequestedDeliveryBy(), d.getStartedAt())).toList());
+                        d.getRequestedDeliveryBy(), d.getMonitoringStartedAt())).toList());
 
         Message<CourierDeliveriesSnapshot> message = MessageBuilder.withPayload(snapshot)
                 .setHeader(KafkaHeaders.KEY, courierId.toString())

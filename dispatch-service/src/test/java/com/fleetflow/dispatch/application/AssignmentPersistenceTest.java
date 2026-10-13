@@ -298,6 +298,24 @@ class AssignmentPersistenceTest {
         assertEquals(0, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
     }
 
+    @Test void oldCourierAcknowledgementsCannotReleaseReplacementReservation() {
+        UUID old = courier(2), replacement = courier(2);
+        var now = Instant.now();
+        var assignment = com.fleetflow.dispatch.domain.Assignment.create(UUID.randomUUID(), old, now);
+        assignment.startDelivery(UUID.randomUUID()); assignment.attemptException(now);
+        assignment.reassign(replacement, "SLA_BREACH", "RULE_BASED", now); assignments.save(assignment);
+        assertEquals(1, assignments.countByCourierIdAndLoadAcknowledgedFalse(old));
+        assertEquals(1, assignments.countByCourierIdAndLoadAcknowledgedFalse(replacement));
+        loadService.apply(UUID.randomUUID(), "CourierLoadChanged", old, 1, 2, 1, assignment.getOrderId());
+        loadService.apply(UUID.randomUUID(), "CourierLoadChanged", old, 0, 2, 2, assignment.getOrderId());
+        assertEquals(0, assignments.countByCourierIdAndLoadAcknowledgedFalse(old));
+        assertEquals(1, assignments.countByCourierIdAndLoadAcknowledgedFalse(replacement));
+        loadService.apply(UUID.randomUUID(), "CourierLoadChanged", replacement, 1, 2, 1, assignment.getOrderId());
+        assertEquals(0, assignments.countByCourierIdAndLoadAcknowledgedFalse(replacement));
+        var saved = assignments.findById(assignment.getId()).orElseThrow();
+        assertEquals(replacement, saved.getCourierId()); assertNotNull(saved.getExceptionAttemptedAt());
+    }
+
     @Test void reorderedAcknowledgementsKeepUnacknowledgedReservationsConservative() {
         UUID courierId = courier(3);
         OpenOrderView first = order(), second = order();

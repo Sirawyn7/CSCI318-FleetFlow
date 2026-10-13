@@ -17,13 +17,17 @@ import java.util.function.Consumer;
 @Configuration
 public class CourierAvailabilityChangedConsumerConfig {
     @Bean
-    public Consumer<CourierAvailabilityChanged> courierAvailabilityChangedConsumer(CourierAvailabilityProjectionService projectionService) {
-        return event -> projectionService.applyAvailabilityChange(
+    public Consumer<CourierAvailabilityChanged> courierAvailabilityChangedConsumer(CourierAvailabilityProjectionService projectionService,
+            com.fleetflow.dispatch.application.DeliveryExceptionService exceptions) {
+        return event -> {
+            projectionService.applyAvailabilityChange(
                 event.envelope().eventId(),
                 event.envelope().eventType(),
                 event.courierId(),
                 event.available(),
                 event.envelope().occurredAt()
         );
+            if (!event.available()) exceptions.offline(event.courierId());
+        };
     }
 }

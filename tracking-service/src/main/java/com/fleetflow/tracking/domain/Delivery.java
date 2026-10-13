@@ -37,6 +37,20 @@ public class Delivery {
     private Instant startedAt;
 
     private Instant completedAt;
+    private Instant courierAssignedAt;
+    public Instant getMonitoringStartedAt() { return courierAssignedAt == null ? startedAt : courierAssignedAt; }
+
+    /** Reassignment preserves delivery identity, history and the lifetime exception budget. */
+    public void reassign(UUID previous, UUID replacement, double speed) {
+        if (replacement == null || replacement.equals(previous) || !Double.isFinite(speed) || speed <= 0)
+            throw new IllegalArgumentException("Valid replacement and speed required");
+        if (courierId.equals(replacement)) return;
+        if (!courierId.equals(previous) || completedAt != null || arrivedAt != null)
+            throw new IllegalStateException("Delivery cannot be reassigned");
+        courierId = replacement;
+        averageSpeedKmh = speed;
+        courierAssignedAt = Instant.now();
+    }
     private String routeSummary;
     private String confirmation;
 

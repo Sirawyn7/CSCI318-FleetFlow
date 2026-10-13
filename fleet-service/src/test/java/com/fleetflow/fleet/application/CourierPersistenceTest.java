@@ -65,6 +65,74 @@ class CourierPersistenceTest {
         assertEquals(0, management.get(id).getActiveOrderCount());
     }
 
+    @Test void reassignmentTransfersLoadOnceAndDelayedOriginalAssignmentCannotRestoreIt() {
+        UUID old = courier(2).getId(), replacement = courier(2).getId(), order = UUID.randomUUID();
+        service.apply(UUID.randomUUID(), order, old, false);
+        UUID event = UUID.randomUUID();
+        service.reassign(event, order, old, replacement);
+        service.reassign(event, order, old, replacement);
+        service.reassign(UUID.randomUUID(), order, old, replacement);
+        service.apply(UUID.randomUUID(), order, old, false);
+        assertEquals(0, management.get(old).getActiveOrderCount());
+        assertEquals(1, management.get(replacement).getActiveOrderCount());
+        service.apply(UUID.randomUUID(), order, replacement, true);
+        assertEquals(0, management.get(replacement).getActiveOrderCount());
+    }
+
+    @Test void reassignmentBeforeOriginalAssignmentAndCompletionBeforeReassignmentAreSafe() {
+        UUID old = courier(2).getId(), replacement = courier(2).getId(), order = UUID.randomUUID();
+        service.reassign(UUID.randomUUID(), order, old, replacement);
+        service.apply(UUID.randomUUID(), order, old, false);
+        assertEquals(0, management.get(old).getActiveOrderCount());
+        assertEquals(1, management.get(replacement).getActiveOrderCount());
+        UUID completed = UUID.randomUUID();
+        service.apply(UUID.randomUUID(), completed, replacement, true);
+        service.reassign(UUID.randomUUID(), completed, old, replacement);
+        service.apply(UUID.randomUUID(), completed, old, false);
+        assertEquals(1, management.get(replacement).getActiveOrderCount());
+    }
+
+    @Test void oldCourierCompletionInFlightReleasesTheTransferredLoad() {
+        UUID old = courier(2).getId(), replacement = courier(2).getId(), order = UUID.randomUUID();
+        service.apply(UUID.randomUUID(), order, old, false);
+        service.reassign(UUID.randomUUID(), order, old, replacement);
+        service.apply(UUID.randomUUID(), order, old, true);
+        service.apply(UUID.randomUUID(), order, old, true);
+        assertEquals(0, management.get(old).getActiveOrderCount());
+        assertEquals(0, management.get(replacement).getActiveOrderCount());
+    }
+
+    @Test void fullReplacementOrFailedPublicationRollsBackTransfer() {
+        UUID old = courier(2).getId(), replacement = courier(1).getId(), order = UUID.randomUUID();
+        service.apply(UUID.randomUUID(), order, old, false);
+        UUID other = UUID.randomUUID(); service.apply(UUID.randomUUID(), other, replacement, false);
+        UUID event = UUID.randomUUID();
+        assertThrows(IllegalStateException.class, () -> service.reassign(event, order, old, replacement));
+        assertFalse(processed.existsById(event)); assertEquals(old, loads.findById(order).orElseThrow().getCourierId());
+        service.apply(UUID.randomUUID(), other, replacement, true);
+        org.mockito.Mockito.doThrow(new IllegalStateException("Broker down")).when(publisher)
+                .publish(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(order));
+        assertThrows(IllegalStateException.class, () -> service.reassign(event, order, old, replacement));
+        assertEquals(1, management.get(old).getActiveOrderCount());
+        assertEquals(0, management.get(replacement).getActiveOrderCount());
+        assertFalse(processed.existsById(event));
+    }
+
+    @Test void cancellationTombstoneSurvivesLateReassignmentAndAssignment() {
+        UUID old = courier(2).getId(), replacement = courier(2).getId(), order = UUID.randomUUID();
+        service.cancel(UUID.randomUUID(), order);
+        assertTrue(loads.findCourierIdByOrderId(order).isEmpty());
+        UUID event = UUID.randomUUID();
+        service.reassign(event, order, old, replacement);
+        service.reassign(event, order, old, replacement);
+        assertNull(loads.findById(order).orElseThrow().getCourierId());
+        service.apply(UUID.randomUUID(), order, old, false);
+        service.reassign(UUID.randomUUID(), order, old, replacement);
+        assertTrue(loads.findById(order).orElseThrow().isCompleted());
+        assertEquals(0, management.get(old).getActiveOrderCount());
+        assertEquals(0, management.get(replacement).getActiveOrderCount());
+    }
+
     @Test void duplicatesAndCompletionPersistExactlyOnce() {
         UUID id = courier(2).getId(), order = UUID.randomUUID(), event = UUID.randomUUID();
         service.apply(event, order, id, false);

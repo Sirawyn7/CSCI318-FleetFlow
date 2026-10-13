@@ -41,6 +41,25 @@ public class AssignmentDecision {
 
     private Instant decidedAt;
 
+    @Enumerated(EnumType.STRING)
+    private AssignmentPath reassignmentPath;
+    @Enumerated(EnumType.STRING)
+    private DecisionOutcome reassignmentOutcome;
+    @jakarta.persistence.Column(length = 4000)
+    private String reassignmentReason;
+    private Instant reassignmentDecidedAt;
+    private UUID replacementCourierId;
+
+    public void recordReassignment(UUID courierId, AssignmentPath path, DecisionOutcome outcome, String reason, Instant at) {
+        this.replacementCourierId = courierId; this.reassignmentPath = path;
+        this.reassignmentOutcome = outcome; this.reassignmentReason = reason; this.reassignmentDecidedAt = at;
+    }
+    public AssignmentPath getReassignmentPath() { return reassignmentPath; }
+    public DecisionOutcome getReassignmentOutcome() { return reassignmentOutcome; }
+    public String getReassignmentReason() { return reassignmentReason; }
+    public Instant getReassignmentDecidedAt() { return reassignmentDecidedAt; }
+    public UUID getReplacementCourierId() { return replacementCourierId; }
+
     protected AssignmentDecision() {
         // JPA
     }
