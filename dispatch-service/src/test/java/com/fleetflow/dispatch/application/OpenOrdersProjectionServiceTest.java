@@ -4,6 +4,9 @@ import com.fleetflow.dispatch.infrastructure.persistence.OpenOrderView;
 import com.fleetflow.dispatch.infrastructure.persistence.OpenOrderViewRepository;
 import com.fleetflow.dispatch.infrastructure.persistence.ProcessedEvent;
 import com.fleetflow.dispatch.infrastructure.persistence.ProcessedEventRepository;
+import com.fleetflow.dispatch.infrastructure.persistence.AssignmentRepository;
+import com.fleetflow.dispatch.infrastructure.persistence.CourierAvailabilityViewRepository;
+import com.fleetflow.dispatch.infrastructure.persistence.OrderCancellationStateRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,12 +33,16 @@ class OpenOrdersProjectionServiceTest {
 
     @Mock
     private ProcessedEventRepository processedEventRepository;
+    @Mock private AssignmentRepository assignments;
+    @Mock private CourierAvailabilityViewRepository couriers;
+    @Mock private OrderCancellationStateRepository cancellations;
 
     private OpenOrdersProjectionService service;
 
     @BeforeEach
     void setUp() {
-        service = new OpenOrdersProjectionService(openOrderViewRepository, processedEventRepository);
+        service = new OpenOrdersProjectionService(openOrderViewRepository, processedEventRepository,
+                assignments, couriers, cancellations);
     }
 
     @Test
@@ -71,7 +78,8 @@ class OpenOrdersProjectionServiceTest {
         UUID eventId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         when(processedEventRepository.existsById(eventId)).thenReturn(false);
-        when(openOrderViewRepository.existsById(orderId)).thenReturn(true);
+        when(openOrderViewRepository.findForUpdate(orderId)).thenReturn(java.util.Optional.of(new OpenOrderView(
+                orderId, UUID.randomUUID(), 1, 2, 3, 4, "STANDARD", Instant.now(), Instant.now())));
 
         service.applyOrderCancelled(eventId, "OrderCancelled", orderId);
 
@@ -84,7 +92,7 @@ class OpenOrdersProjectionServiceTest {
         UUID eventId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         when(processedEventRepository.existsById(eventId)).thenReturn(false);
-        when(openOrderViewRepository.existsById(orderId)).thenReturn(false);
+        when(openOrderViewRepository.findForUpdate(orderId)).thenReturn(java.util.Optional.empty());
 
         service.applyOrderCancelled(eventId, "OrderCancelled", orderId);
 

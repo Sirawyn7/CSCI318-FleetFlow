@@ -2,6 +2,7 @@ package com.fleetflow.fleet.infrastructure.messaging;
 
 import com.fleetflow.contracts.EventEnvelope;
 import com.fleetflow.contracts.dispatch.OrderAssigned;
+import com.fleetflow.contracts.order.OrderCancelled;
 import com.fleetflow.contracts.tracking.DeliveryCompleted;
 import com.fleetflow.fleet.domain.Courier;
 import com.fleetflow.fleet.domain.VehicleType;
@@ -62,7 +63,33 @@ class CourierLoadConsumerIntegrationTest {
         assertTrue(bridge.send("fleetflow.tracking.delivery-completed", completionMarker));
         awaitEvent(completionMarker.envelope().eventId());
         assertEquals(0, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
-        assertEquals(4, processed.count());
+        assertTrue(processed.existsById(assigned.envelope().eventId()));
+        assertTrue(processed.existsById(completionMarker.envelope().eventId()));
+    }
+
+    @Test void realKafkaCancellationReleasesLoadAndSuppressesLateAssignments() throws Exception {
+        UUID courierId = couriers.save(Courier.register(VehicleType.VAN, 2, "A")).getId();
+        UUID orderId = UUID.randomUUID();
+        var assigned = new OrderAssigned(envelope("OrderAssigned"), orderId, courierId, UUID.randomUUID());
+        assertTrue(bridge.send("fleetflow.dispatch.order-assigned", assigned));
+        awaitEvent(assigned.envelope().eventId());
+        var cancelled = new OrderCancelled(envelope("OrderCancelled"), orderId, "Customer cancelled");
+        assertTrue(bridge.send("fleetflow.order.order-cancelled", cancelled));
+        awaitEvent(cancelled.envelope().eventId());
+        assertTrue(bridge.send("fleetflow.order.order-cancelled", cancelled));
+        var marker = new OrderCancelled(envelope("OrderCancelled"), orderId, "Duplicate cancellation");
+        assertTrue(bridge.send("fleetflow.order.order-cancelled", marker));
+        awaitEvent(marker.envelope().eventId());
+        assertEquals(0, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
+
+        UUID lateOrder = UUID.randomUUID();
+        var earlyCancel = new OrderCancelled(envelope("OrderCancelled"), lateOrder, "Cancelled first");
+        assertTrue(bridge.send("fleetflow.order.order-cancelled", earlyCancel));
+        awaitEvent(earlyCancel.envelope().eventId());
+        var lateAssignment = new OrderAssigned(envelope("OrderAssigned"), lateOrder, courierId, UUID.randomUUID());
+        assertTrue(bridge.send("fleetflow.dispatch.order-assigned", lateAssignment));
+        awaitEvent(lateAssignment.envelope().eventId());
+        assertEquals(0, couriers.findById(courierId).orElseThrow().getActiveOrderCount());
     }
 
     private EventEnvelope envelope(String type) {

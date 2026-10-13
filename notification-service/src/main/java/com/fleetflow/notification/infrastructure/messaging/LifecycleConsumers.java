@@ -2,6 +2,8 @@ package com.fleetflow.notification.infrastructure.messaging;
 
 import com.fleetflow.contracts.EventEnvelope;
 import com.fleetflow.contracts.dispatch.OrderAssigned;
+import com.fleetflow.contracts.dispatch.OrderReassigned;
+import com.fleetflow.contracts.dispatch.AssignmentFailed;
 import com.fleetflow.contracts.tracking.*;
 import com.fleetflow.notification.application.NotificationService;
 import com.fleetflow.notification.domain.NotificationKind;
@@ -15,6 +17,12 @@ public class LifecycleConsumers {
     public LifecycleConsumers(NotificationService notifications) { this.notifications = notifications; }
     @Bean public Consumer<OrderAssigned> notifyAssigned() {
         return e -> receive(e.envelope(), e.orderId(), null, NotificationKind.ASSIGNED, null);
+    }
+    @Bean public Consumer<OrderReassigned> notifyReassigned() {
+        return e -> receive(e.envelope(), e.orderId(), null, NotificationKind.REASSIGNED, e.reason());
+    }
+    @Bean public Consumer<AssignmentFailed> notifyAssignmentFailed() {
+        return e -> receive(e.envelope(), e.orderId(), null, NotificationKind.ASSIGNMENT_FAILED, e.reason());
     }
     @Bean public Consumer<DeliveryStarted> notifyStarted() {
         return e -> receive(e.envelope(), e.orderId(), e.deliveryId(), NotificationKind.IN_TRANSIT, null);

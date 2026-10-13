@@ -2,6 +2,8 @@ package com.fleetflow.notification.infrastructure.messaging;
 
 import com.fleetflow.contracts.*;
 import com.fleetflow.contracts.dispatch.OrderAssigned;
+import com.fleetflow.contracts.dispatch.OrderReassigned;
+import com.fleetflow.contracts.dispatch.AssignmentFailed;
 import com.fleetflow.contracts.tracking.*;
 import com.fleetflow.notification.application.*;
 import com.fleetflow.notification.infrastructure.persistence.*;
@@ -38,7 +40,7 @@ class NotificationKafkaIntegrationTest {
     @Autowired ObjectMapper mapper;
     @MockitoBean DeliveryDataPort data;
 
-    @Test void fiveLifecycleBindingsDeduplicateAndPublishRealAuditEvents() throws Exception {
+    @Test void sevenLifecycleBindingsDeduplicateAndPublishRealAuditEvents() throws Exception {
         UUID order = UUID.randomUUID(), customer = UUID.randomUUID(), courier = UUID.randomUUID(), deliveryId = UUID.randomUUID();
         when(data.order(order)).thenReturn(new DeliveryData.Order(order, customer, "IN_TRANSIT", null));
         var near = new DeliveryNearDestination(envelope("DeliveryNearDestination"), deliveryId, 200);
@@ -53,12 +55,21 @@ class NotificationKafkaIntegrationTest {
         assertTrue(bridge.send(Topics.DELIVERY_STARTED, started)); awaitEvent(started.envelope().eventId());
         assertTrue(bridge.send(Topics.DELIVERY_AT_RISK, risk)); awaitEvent(risk.envelope().eventId());
         assertTrue(bridge.send(Topics.DELIVERY_COMPLETED, complete)); awaitEvent(complete.envelope().eventId());
+        var reassigned = new OrderReassigned(envelope("OrderReassigned"), order, courier,
+                UUID.randomUUID(), UUID.randomUUID(), "COURIER_OFFLINE");
+        var failed = new AssignmentFailed(envelope("AssignmentFailed"), order, "Agent timed out; no available courier with known location, remaining capacity and a matching zone");
+        assertTrue(bridge.send(Topics.ORDER_REASSIGNED, reassigned)); awaitEvent(reassigned.envelope().eventId());
+        assertTrue(bridge.send(Topics.ASSIGNMENT_FAILED, failed)); awaitEvent(failed.envelope().eventId());
+        assertTrue(bridge.send(Topics.ORDER_REASSIGNED, reassigned));
+        assertTrue(bridge.send(Topics.ASSIGNMENT_FAILED, failed));
         assertTrue(bridge.send(Topics.ORDER_ASSIGNED, assigned));
         var marker = new OrderAssigned(envelope("OrderAssigned"), order, courier, UUID.randomUUID());
         assertTrue(bridge.send(Topics.ORDER_ASSIGNED, marker)); awaitEvent(marker.envelope().eventId());
-        assertEquals(6, notifications.count()); assertEquals(6, processed.count());
+        assertEquals(8, notifications.count()); assertEquals(8, processed.count());
         notifications.findAll().forEach(n -> delivery.deliver(n.getId()));
-        assertEquals(6, service.inbox(customer, 0, 20).size());
+        assertEquals(8, service.inbox(customer, 0, 20).size());
+        assertTrue(service.inbox(customer, 0, 20).stream().anyMatch(n -> n.message().equals("A different courier has been assigned to order " + order + ".")));
+        assertTrue(service.inbox(customer, 0, 20).stream().anyMatch(n -> n.message().equals("We could not assign a courier to order " + order + ".")));
         notifications.findAll().forEach(n -> delivery.publishAudit(n.getId()));
         var config = new HashMap<String, Object>();
         config.put("bootstrap.servers", KAFKA.getBootstrapServers()); config.put("group.id", "audit-test-" + UUID.randomUUID());
@@ -68,7 +79,7 @@ class NotificationKafkaIntegrationTest {
         try (var consumer = new KafkaConsumer<String, String>(config)) {
             consumer.subscribe(List.of(Topics.NOTIFICATION_SENT));
             long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
-            while (auditIds.size() < 6 && System.nanoTime() < deadline) {
+            while (auditIds.size() < 8 && System.nanoTime() < deadline) {
                 for (var record : consumer.poll(Duration.ofMillis(200))) {
                     var json = mapper.readTree(record.value());
                     assertEquals(customer.toString(), json.get("recipientId").asText());
@@ -78,7 +89,7 @@ class NotificationKafkaIntegrationTest {
                 }
             }
         }
-        assertEquals(6, auditIds.size());
+        assertEquals(8, auditIds.size());
     }
     private EventEnvelope envelope(String type) { return new EventEnvelope(UUID.randomUUID(), type, Instant.now(), "uc8-test"); }
     private void awaitEvent(UUID id) throws InterruptedException {

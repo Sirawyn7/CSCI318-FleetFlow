@@ -12,9 +12,15 @@ spring:
       ddl-auto: update
   cloud:
     function:
-      definition: notifyAssigned;notifyStarted;notifyNearDestination;notifyCompleted;notifyAtRisk
+      definition: notifyAssigned;notifyReassigned;notifyAssignmentFailed;notifyStarted;notifyNearDestination;notifyCompleted;notifyAtRisk
     stream:
       bindings:
+        notifyReassigned-in-0:
+          destination: fleetflow.dispatch.order-reassigned
+          group: notification-service
+        notifyAssignmentFailed-in-0:
+          destination: fleetflow.dispatch.assignment-failed
+          group: notification-service
         notifyAssigned-in-0:
           destination: fleetflow.dispatch.order-assigned
           group: notification-service
@@ -36,6 +42,12 @@ spring:
         binder:
           brokers: ${KAFKA_BROKERS:localhost:9092}
         bindings:
+          notifyReassigned-in-0:
+            consumer:
+              enableDlq: true
+          notifyAssignmentFailed-in-0:
+            consumer:
+              enableDlq: true
           notifyAssigned-in-0:
             consumer:
               enableDlq: true

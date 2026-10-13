@@ -6,9 +6,17 @@ and reads Order and Tracking REST APIs using the contracts below.
 
 ## Implemented
 
-- FR15 consumes the five documented lifecycle events, renders persisted templates,
+- FR15 consumes the five original lifecycle events plus `OrderReassigned` and
+  `AssignmentFailed`, renders persisted templates,
   delivers to a durable **IN_APP inbox**, and publishes the existing NotificationSent
   audit event. No email/SMS provider is required or claimed.
+- Reassignment and assignment-failure messages omit internal diagnostic reasons and use
+  the same recipient lookup, deduplication, inbox and audit pipeline. Raw reasons remain
+  in the internal notification record. Legacy persisted assignment templates also use
+  the safe customer wording. `OrderReassigned` alerts arrive once Dispatch's FR9
+  publisher is merged.
+- Notification kinds and template codes use `VARCHAR(64)`. Hibernate schema update
+  converts the earlier native H2 enum columns, preserving existing rows.
 - FR16 provides conversational questions and follow-ups using LangChain4j AiServices
   and two read-only, order-scoped REST tools. Conversation turns and fallback use are
   persisted. Only the last three turns go to the model; a conversation accepts 50
@@ -101,14 +109,16 @@ can still report Order facts when Tracking is unavailable.
 | Event | Template | Correlation |
 |---|---|---|
 | OrderAssigned | ASSIGNED | orderId |
+| OrderReassigned | REASSIGNED | orderId + reason |
+| AssignmentFailed | ASSIGNMENT_FAILED | orderId + reason |
 | DeliveryStarted | IN_TRANSIT | deliveryId + orderId; saves the local link |
 | DeliveryNearDestination | NEAR_DESTINATION | deliveryId; waits for the local link |
 | DeliveryCompleted | DELIVERED | deliveryId + orderId |
 | DeliveryAtRisk | AT_RISK | deliveryId + orderId + riskReason |
 
 Uses the exact existing fleetflow.dispatch.* and fleetflow.tracking.* topic names,
-consumer group notification-service. No inferred consumer edges (such as reassignment
-or ETA notifications) are added. Tracking's FR13 and FR14 implementations publish
+consumer group notification-service. ETA updates do not generate notifications.
+Tracking's FR13 and FR14 implementations publish
 DeliveryAtRisk and DeliveryCompleted for at-risk and completed alerts, respectively.
 
 Invalid input retries and then goes to error.<source-topic>.notification-service.

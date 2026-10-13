@@ -64,6 +64,26 @@ class OpenOrdersConsumerIntegrationTest {
 
     @Autowired
     private ProcessedEventRepository processedEventRepository;
+    @Autowired private com.fleetflow.dispatch.infrastructure.persistence.AssignmentRepository assignments;
+    @Autowired private com.fleetflow.dispatch.infrastructure.persistence.CourierAvailabilityViewRepository couriers;
+
+    @Test
+    void cancellationReleasesAnExistingReservationThroughKafka() throws InterruptedException {
+        UUID orderId = UUID.randomUUID(), courierId = UUID.randomUUID();
+        couriers.save(new com.fleetflow.dispatch.infrastructure.persistence.CourierAvailabilityView(
+                courierId, "VAN", 1, "A", false, Instant.now()));
+        assignments.save(com.fleetflow.dispatch.domain.Assignment.create(orderId, courierId, Instant.now()));
+        var event = new OrderCancelled(new EventEnvelope(UUID.randomUUID(), "OrderCancelled", Instant.now(), "test"),
+                orderId, "Customer cancelled");
+        assertTrue(streamBridge.send(Topics.ORDER_CANCELLED, event));
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(30).toNanos();
+        while (!processedEventRepository.existsById(event.envelope().eventId()) && System.nanoTime() < deadline) {
+            Thread.sleep(100);
+        }
+        assertTrue(processedEventRepository.existsById(event.envelope().eventId()));
+        assertTrue(assignments.findByOrderId(orderId).orElseThrow().isCancelled());
+        assertEquals(0, assignments.countByCourierIdAndLoadAcknowledgedFalse(courierId));
+    }
 
     @Test
     void orderPlacedInsertsRowThenOrderCancelledRemovesIt() throws InterruptedException {

@@ -138,7 +138,7 @@ Persist completed delivery record — route summary, timestamps, confirmation. E
 ### UC8 — Notify and Explain Delivery Status *(Notification Service)*
 
 **FR15 — Event-driven customer notifications** → *O1, O4*
-Subscribes to delivery-lifecycle events; dispatches templated notifications (assigned, in transit, near destination, delivered, at risk).
+Subscribes to delivery-lifecycle events; dispatches templated notifications (assigned, reassigned, assignment failed, in transit, near destination, delivered, at risk).
 
 **FR16 — Agentic delivery status explainer** **[AGENT]** → *O4*
 
@@ -185,14 +185,14 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | Event | Publisher | Consumers |
 |---|---|---|
 | `OrderPlaced` | Order | Dispatch *(documented — `AGENTS.md` line 104)*, Tracking *(documented — FR11, delivery-destination bootstrap)* |
-| `OrderCancelled` | Order | Dispatch *(documented — ADR 0001, open_orders_view removal; FR3's "releases any held assignment" against `assignments` remains inferred)* |
+| `OrderCancelled` | Order | Dispatch *(documented — backlog removal and held-assignment cancellation, FR3 review fix)*, Fleet *(documented — releases active load and retains a cancellation tombstone for late assignment events)* |
 | `CourierRegistered` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11, vehicle/average-speed bootstrap)* |
 | `CourierAvailabilityChanged` | Fleet | Dispatch *(documented — §7; also the FR9 offline trigger)* |
 | `CourierLocationUpdated` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11–FR13)* |
 | `CourierLoadChanged` | Fleet | Dispatch *(documented — ADR 0009; UC3 now projects versioned load and acknowledges local reservations)* |
 | `OrderAssigned` | Dispatch | Tracking *(documented — delivery bootstrap)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)*, Order *(inferred — FR2 status)* |
-| `OrderReassigned` | Dispatch | Tracking, Notification, Fleet *(all inferred)* |
-| `AssignmentFailed` | Dispatch | Order, Notification *(both inferred)* |
+| `OrderReassigned` | Dispatch | Notification *(documented — FR15 review fix; consumer ready ahead of FR9 publisher)*, Tracking, Fleet *(both inferred)* |
+| `AssignmentFailed` | Dispatch | Notification *(documented — FR15 review fix)*, Order *(inferred)* |
 | `DeliveryStarted` | Tracking | Order *(inferred — FR2 status)*, Notification *(documented — FR15, "in transit")* |
 | `DeliveryEtaUpdated` | Tracking | Notification *(inferred)* |
 | `DeliveryNearDestination` | Tracking | Notification *(documented — FR15)* |
@@ -232,7 +232,7 @@ Database-per-service. No shared tables. Cross-context references held as IDs onl
 |---|---|
 | **Order** | `orders`, `order_items`, `order_status_history`, `processed_events`¹ |
 | **Fleet** | `couriers`, `vehicles`, `availability_windows`, `courier_locations` (current position), `courier_order_load` (FR6 event-order ledger), `processed_events`¹ |
-| **Dispatch** | `assignments`, `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model), `open_orders_view` (derived read model, ADR 0001), `processed_events`¹ |
+| **Dispatch** | `assignments`, `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model), `open_orders_view` (derived read model, ADR 0001), `order_cancellation_state` (serializes placement/cancellation and retains tombstones), `processed_events`¹ |
 | **Tracking** | `deliveries`, `delivery_track_points` (delivery-scoped, derived from stream), `eta_snapshots`, `delivery_events`, `processed_events`¹ |
 | **Notification** | `notifications`, `notification_templates`, `agent_conversations`, `processed_events`¹ |
 

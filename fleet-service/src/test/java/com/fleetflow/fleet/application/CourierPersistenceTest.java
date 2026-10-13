@@ -25,6 +25,46 @@ class CourierPersistenceTest {
 
     private Courier courier(int capacity) { return couriers.save(Courier.register(VehicleType.VAN, capacity, "A")); }
 
+    @Test void cancellationReleasesOnlyItsLoadAndLateEventsCannotRestoreIt() {
+        UUID id = courier(3).getId(), order = UUID.randomUUID(), other = UUID.randomUUID();
+        service.apply(UUID.randomUUID(), order, id, false);
+        service.apply(UUID.randomUUID(), other, id, false);
+        UUID event = UUID.randomUUID();
+        service.cancel(event, order);
+        service.cancel(event, order);
+        service.cancel(UUID.randomUUID(), order);
+        service.apply(UUID.randomUUID(), order, id, false);
+        service.apply(UUID.randomUUID(), order, id, true);
+        assertEquals(1, management.get(id).getActiveOrderCount());
+        assertTrue(loads.findById(order).orElseThrow().isCompleted());
+    }
+
+    @Test void cancellationBeforeAssignmentRetainsATombstoneAndAcknowledgesLateAssignment() {
+        UUID id = courier(1).getId(), order = UUID.randomUUID();
+        service.cancel(UUID.randomUUID(), order);
+        assertNull(loads.findById(order).orElseThrow().getCourierId());
+        service.apply(UUID.randomUUID(), order, id, false);
+        assertEquals(0, management.get(id).getActiveOrderCount());
+        assertEquals(id, loads.findById(order).orElseThrow().getCourierId());
+        org.mockito.Mockito.verify(publisher).publish(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(order));
+    }
+
+    @Test void failedCancellationPublicationRollsBackReleaseAndCanRetry() {
+        UUID id = courier(1).getId(), order = UUID.randomUUID(), event = UUID.randomUUID();
+        service.apply(UUID.randomUUID(), order, id, false);
+        org.mockito.Mockito.doThrow(new IllegalStateException("Broker down")).when(publisher)
+                .publish(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(order));
+        assertThrows(IllegalStateException.class, () -> service.cancel(event, order));
+        assertEquals(1, management.get(id).getActiveOrderCount());
+        assertFalse(loads.findById(order).orElseThrow().isCompleted());
+        assertFalse(processed.existsById(event));
+        org.mockito.Mockito.doNothing().when(publisher).publish(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(order));
+        service.cancel(event, order);
+        assertEquals(0, management.get(id).getActiveOrderCount());
+    }
+
     @Test void duplicatesAndCompletionPersistExactlyOnce() {
         UUID id = courier(2).getId(), order = UUID.randomUUID(), event = UUID.randomUUID();
         service.apply(event, order, id, false);
