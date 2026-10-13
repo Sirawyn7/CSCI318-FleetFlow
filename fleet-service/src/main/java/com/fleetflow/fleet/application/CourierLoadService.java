@@ -8,7 +8,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.Objects;
 
 @Service
 public class CourierLoadService {

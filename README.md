@@ -191,8 +191,9 @@ mvn -pl fleet-service -am test "-Dtest=*Test,!*IntegrationTest" -Dsurefire.failI
 ## UC3 — Assign Courier to Order (FR7, FR8)
 
 Dispatch runs on port 8083. UC3 is event-driven; it currently has no REST endpoint of
-its own. UC4's FR9 (reassignment on exception) is not yet implemented, so nothing
-publishes `OrderReassigned`.
+its own. UC4 implements reassignment on exception and publishes `OrderReassigned`;
+Notification consumes it to notify the customer. Cancellation releases Dispatch
+reservations and Fleet load and prevents further automated reassignment.
 
 - **FR8** (primary path): on `OrderPlaced`, a LangChain4j agent reasons over the open
   orders backlog and courier availability/load, returning a candidate assignment plus

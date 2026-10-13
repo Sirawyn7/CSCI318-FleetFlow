@@ -30,6 +30,7 @@ public class DeliveryExceptionService {
     public void started(UUID orderId, UUID deliveryId, UUID courierId) {
         transaction.executeWithoutResult(status -> {
             var a = required(orderId);
+            if (a.isCancelled()) return;
             if (!a.getCourierId().equals(courierId) && !courierId.equals(a.getPreviousCourierId()))
                 throw new IllegalStateException("Delivery courier does not match assignment");
             a.startDelivery(deliveryId);
@@ -71,6 +72,7 @@ public class DeliveryExceptionService {
 
     private void handle(UUID orderId, UUID deliveryId, UUID courierId, String reason, Instant occurredAt) {
         var a = assignments.findByOrderId(orderId).orElseThrow(() -> new IllegalStateException("Missing assignment"));
+        if (a.isCancelled()) return;
         if (!a.isDeliveryActive()) {
             if (a.getDeliveryId() == null) throw new IllegalStateException("DeliveryStarted not projected yet");
             return;
@@ -148,7 +150,7 @@ public class DeliveryExceptionService {
     public void publishPending(UUID orderId) {
         transaction.executeWithoutResult(status -> {
             var a = required(orderId);
-            if (a.getReassignedAt() == null || a.isReassignmentPublished()) return;
+            if (a.isCancelled() || a.getReassignedAt() == null || a.isReassignmentPublished()) return;
             // The assignment is a single-entry transactional outbox: stable event ID on every retry.
             events.publishOrderReassigned(a);
             a.markReassignmentPublished();
@@ -161,6 +163,7 @@ public class DeliveryExceptionService {
 
     public List<OperatorException> operatorQueue() {
         return assignments.findByEscalatedAtIsNotNullAndDeliveryClosedFalse().stream()
+                .filter(a -> !a.isCancelled())
                 .map(a -> new OperatorException(a.getOrderId(), a.getDeliveryId(), a.getCourierId(),
                         a.getPendingException(), a.getExceptionAttemptedAt(), a.getEscalatedAt())).toList();
     }

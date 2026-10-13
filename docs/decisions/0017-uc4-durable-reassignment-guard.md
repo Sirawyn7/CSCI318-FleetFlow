@@ -63,11 +63,11 @@ Keeping the guard in `Assignment` means the attempt count is saved even if the s
 - Existing assignments need lifecycle-event replay to populate active/terminal state.
   Back up existing H2 databases before schema upgrades.
 - Reassignment is a logical transfer; physical handoff confirmation and manual operator
-  commands remain outside this implementation. Notification consumes `OrderReassigned`
-  on the companion `Fix-missing-notifications-and-order-cancellation` branch; that
-  integration is pending merge into this branch. Merge the companion PR first, then
-  rebase FR9 and apply its `docs/fr9-cancellation-merge-handoff.md` reconciliation
-  checks before treating cancellation and reassignment as integrated.
+  commands remain outside this implementation. The notifications/cancellation PR
+  was merged into main in `625ce77` and is included in this branch. Notification
+  consumes `OrderReassigned`. Cancelled assignments stop exception handling and
+  release both current- and previous-courier reservations; Fleet preserves terminal
+  cancellation tombstones when late reassignment events arrive.
 - Services remain eventually consistent. Capacity conflicts or missing prerequisites
   may require DLQ investigation and replay. Fleet acknowledgements and Tracking
   snapshots retain their existing publication/transaction limitations; replay and
@@ -97,3 +97,12 @@ and `mvn -pl dispatch-service -am test '-Dtest=DeliveryExceptionIntegrationTest'
 
 Review follow-up evidence: [prompt 0015](../prompts/0015-uc4-review-corrections.md).
 The original implementation prompt is unavailable; prompt 0015 records the review follow-up.
+
+On 2026-10-13, after reconciliation with the merged notifications/cancellation
+changes, the full reactor non-integration suite passed **249 tests**, with no
+failures, errors or skips (Dispatch 84, Fleet 43). New regressions cover cancellation
+during an agent call, late exception signals, release of both courier reservations,
+suppression of pending reassignment publication, and Fleet cancellation tombstones
+receiving late assignment/reassignment events. Command: `mvn -o test
+'-Dtest=!*IntegrationTest' '-Dsurefire.failIfNoSpecifiedTests=false'` using the
+existing local dependency cache. Kafka integration tests were not rerun in this session.

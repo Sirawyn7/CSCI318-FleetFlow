@@ -37,7 +37,7 @@ public class Assignment {
     private Long version;
 
     public boolean isCancelled() { return cancelled; }
-    public void cancel() { cancelled = true; }
+    public void cancel() { cancelled = true; closeDelivery(); }
 
     private UUID deliveryId;
     @jakarta.persistence.Column(columnDefinition = "boolean default false")
@@ -82,7 +82,7 @@ public class Assignment {
     }
 
     public void closeDelivery() { deliveryClosed = true; pendingException = null; }
-    public boolean isDeliveryActive() { return deliveryId != null && !deliveryClosed; }
+    public boolean isDeliveryActive() { return deliveryId != null && !deliveryClosed && !cancelled; }
     public UUID getDeliveryId() { return deliveryId; }
     public Instant getExceptionAttemptedAt() { return exceptionAttemptedAt; }
     public Instant getReassignedAt() { return reassignedAt; }

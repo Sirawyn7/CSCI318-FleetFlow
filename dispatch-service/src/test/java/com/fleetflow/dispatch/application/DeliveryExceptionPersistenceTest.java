@@ -45,6 +45,52 @@ class DeliveryExceptionPersistenceTest {
     private void risk(Assignment a) {
         service.risk(a.getOrderId(), a.getDeliveryId(), a.getCourierId(), "SLA_BREACH", Instant.now());
     }
+    @Test void cancelledAssignmentIgnoresLateStartRiskAndOfflineSignals() {
+        var a = active(courier(false, 2)); courier(true, 2);
+        a.cancel(); assignments.saveAndFlush(a);
+        service.started(a.getOrderId(), a.getDeliveryId(), a.getCourierId());
+        risk(a); service.offline(a.getCourierId()); service.checkOffline(a.getOrderId());
+        assertFalse(reload(a).isDeliveryActive());
+        assertNull(reload(a).getExceptionAttemptedAt());
+        verifyNoInteractions(agent, events);
+    }
+
+    @Test void cancellationDuringAgentCallPreventsTransfer() throws Exception {
+        var a = active(courier(false, 2)); UUID replacement = courier(true, 2);
+        var entered = new CountDownLatch(1); var release = new CountDownLatch(1);
+        doAnswer(call -> {
+            entered.countDown();
+            if (!release.await(4, TimeUnit.SECONDS)) throw new IllegalStateException("Test timed out");
+            return new AgentRecommendation(a.getOrderId(), replacement, "Available replacement");
+        }).when(agent).recommend(any());
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            var first = executor.submit(() -> service.checkOffline(a.getOrderId()));
+            try {
+                assertTrue(entered.await(2, TimeUnit.SECONDS));
+                var cancelled = reload(a); cancelled.cancel(); assignments.saveAndFlush(cancelled);
+            } finally { release.countDown(); }
+            first.get(5, TimeUnit.SECONDS);
+        }
+        assertNull(reload(a).getReassignedAt());
+        service.publishPending(a.getOrderId());
+        service.escalateDue(a.getOrderId(), Instant.now().plusSeconds(601));
+        assertTrue(service.operatorQueue().isEmpty());
+        assertTrue(assignments.findEscalationCandidates(Instant.now().plusSeconds(601)).isEmpty());
+        verifyNoInteractions(events);
+    }
+
+    @Test void cancellationReleasesBothReservationsAndSuppressesPendingPublication() {
+        var a = active(courier(false, 2)); UUID replacement = courier(true, 2);
+        service.checkOffline(a.getOrderId());
+        assertEquals(1, assignments.countByCourierIdAndLoadAcknowledgedFalse(a.getCourierId()));
+        assertEquals(1, assignments.countByCourierIdAndLoadAcknowledgedFalse(replacement));
+        var cancelled = reload(a); cancelled.cancel(); assignments.saveAndFlush(cancelled);
+        assertEquals(0, assignments.countByCourierIdAndLoadAcknowledgedFalse(a.getCourierId()));
+        assertEquals(0, assignments.countByCourierIdAndLoadAcknowledgedFalse(replacement));
+        service.publishPending(a.getOrderId());
+        verifyNoInteractions(events);
+    }
+
     @Test void offlineReassignsAndOutboxRetriesSameEventWithoutRepeatingTheDecision() {
         UUID old = courier(false, 2), replacement = courier(true, 2);
         var a = active(old); service.checkOffline(a.getOrderId());

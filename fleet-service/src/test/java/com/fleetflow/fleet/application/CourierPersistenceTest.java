@@ -118,6 +118,21 @@ class CourierPersistenceTest {
         assertFalse(processed.existsById(event));
     }
 
+    @Test void cancellationTombstoneSurvivesLateReassignmentAndAssignment() {
+        UUID old = courier(2).getId(), replacement = courier(2).getId(), order = UUID.randomUUID();
+        service.cancel(UUID.randomUUID(), order);
+        assertTrue(loads.findCourierIdByOrderId(order).isEmpty());
+        UUID event = UUID.randomUUID();
+        service.reassign(event, order, old, replacement);
+        service.reassign(event, order, old, replacement);
+        assertNull(loads.findById(order).orElseThrow().getCourierId());
+        service.apply(UUID.randomUUID(), order, old, false);
+        service.reassign(UUID.randomUUID(), order, old, replacement);
+        assertTrue(loads.findById(order).orElseThrow().isCompleted());
+        assertEquals(0, management.get(old).getActiveOrderCount());
+        assertEquals(0, management.get(replacement).getActiveOrderCount());
+    }
+
     @Test void duplicatesAndCompletionPersistExactlyOnce() {
         UUID id = courier(2).getId(), order = UUID.randomUUID(), event = UUID.randomUUID();
         service.apply(event, order, id, false);
