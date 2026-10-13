@@ -117,8 +117,8 @@ can still report Order facts when Tracking is unavailable.
 | DeliveryAtRisk | AT_RISK | deliveryId + orderId + riskReason |
 
 Uses the exact existing fleetflow.dispatch.* and fleetflow.tracking.* topic names,
-consumer group notification-service. No inferred consumer edges (such as reassignment
-or ETA notifications) are added. Tracking's FR13 and FR14 implementations publish
+consumer group notification-service. ETA updates do not generate notifications.
+Tracking's FR13 and FR14 implementations publish
 DeliveryAtRisk and DeliveryCompleted for at-risk and completed alerts, respectively.
 
 Invalid input retries and then goes to error.<source-topic>.notification-service.
