@@ -10,7 +10,7 @@ import java.util.*;
 public interface NotificationRepository extends JpaRepository<NotificationRecord, UUID> {
     @Query("""
             select n from NotificationRecord n
-            where n.sentAt is null
+            where n.sentAt is null and n.suppressedAt is null
               and (:createdAt is null or n.createdAt > :createdAt
                    or (n.createdAt = :createdAt and n.id > :id))
             order by n.createdAt asc, n.id asc

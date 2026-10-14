@@ -1,23 +1,21 @@
 package com.fleetflow.notification.infrastructure.persistence;
 
 import com.fleetflow.notification.domain.NotificationKind;
+import com.fleetflow.notification.domain.ReasonWording;
 import jakarta.persistence.*;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "notification_templates")
 public class NotificationTemplate {
-    @Id @Enumerated(EnumType.STRING) @JdbcTypeCode(SqlTypes.VARCHAR)
-    @Column(length = 64) private NotificationKind code;
+    // The kind's name as a plain String: JPA doesn't allow converters on IDs, and an enum ID
+    // would get the same CHECK constraint as NotificationRecord.kind (see its comment).
+    @Id @Column(length = 64) private String code;
     @Column(nullable = false, length = 2000) private String body;
     protected NotificationTemplate() { }
-    public NotificationTemplate(NotificationKind code) { this.code = code; this.body = code.defaultText(); }
+    public NotificationTemplate(NotificationKind kind) { this.code = kind.name(); this.body = kind.defaultText(); }
+    /** The raw reason is an internal code; only its customer wording reaches the message. */
     public String render(java.util.UUID orderId, String reason) {
-        // Previously persisted assignment templates may still contain diagnostic placeholders.
-        if (code == NotificationKind.REASSIGNED || code == NotificationKind.ASSIGNMENT_FAILED)
-            return code.defaultText().replace("{orderId}", orderId.toString());
         return body.replace("{orderId}", orderId.toString())
-                .replace("{reason}", reason == null || reason.isBlank() ? "No reason supplied" : reason);
+                .replace("{reason}", ReasonWording.forCustomer(reason));
     }
 }

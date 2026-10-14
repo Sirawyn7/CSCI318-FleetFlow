@@ -1,5 +1,7 @@
 package com.fleetflow.notification.application;
 
+import com.fleetflow.notification.domain.ReasonWording;
+
 import java.time.Instant;
 import java.util.*;
 
@@ -44,11 +46,11 @@ public final class StatusContext {
         String risk = !t.available() || t.riskFlags() == null ? " Risk information is unavailable."
                 : t.riskFlags().isEmpty() ? " Tracking reports no risk flags."
                 : " Tracking currently reports that " + String.join("; ",
-                        t.riskFlags().stream().map(StatusContext::describeRisk).distinct().toList()) + ".";
+                        t.riskFlags().stream().map(ReasonWording::forCustomer).distinct().toList()) + ".";
         String freshness = t.updatedAt() == null ? "" : " Tracking last updated: " + t.updatedAt() + ".";
         return status + eta + risk + freshness + " The conversational explainer is temporarily unavailable; these are recorded facts, not a confirmed cause of delay.";
     }
-    // Upstream codes are internal vocabulary. Unrecognised values get generic wording, never echoed.
+    // Order's status codes are internal vocabulary. Unrecognised values get generic wording, never echoed.
     private static String describeStatus(String status) {
         return switch (status == null ? "" : status) {
             case "PLACED" -> "has been placed and is waiting for a courier";
@@ -58,15 +60,6 @@ public final class StatusContext {
             case "FAILED" -> "could not be assigned a courier";
             case "CANCELLED" -> "has been cancelled";
             default -> "has a recorded status update";
-        };
-    }
-
-    private static String describeRisk(String flag) {
-        return switch (flag == null ? "" : flag) {
-            case "STATIONARY" -> "the courier has not moved for a while";
-            case "OFF_PACE" -> "the courier is moving more slowly than expected";
-            case "SLA_BREACH" -> "the delivery is predicted to arrive after the requested time";
-            default -> "there is a possible delay";
         };
     }
 

@@ -2,8 +2,6 @@ package com.fleetflow.notification.infrastructure.persistence;
 
 import com.fleetflow.notification.domain.NotificationKind;
 import jakarta.persistence.*;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -16,7 +14,9 @@ public class NotificationRecord {
     private UUID orderId;
     private UUID deliveryId;
     private UUID recipientId;
-    @Enumerated(EnumType.STRING) @JdbcTypeCode(SqlTypes.VARCHAR)
+    // A converter, not @Enumerated: Hibernate adds a CHECK listing today's kinds to enum columns,
+    // and ddl-auto update never changes it, so a new kind would fail on existing databases.
+    @Convert(converter = NotificationKindConverter.class)
     @Column(nullable = false, length = 64) private NotificationKind kind;
     @Column(length = 2000) private String reason;
     @Column(length = 4000) private String body;
@@ -24,6 +24,8 @@ public class NotificationRecord {
     private Instant occurredAt;
     private Instant createdAt;
     private Instant sentAt;
+    /** Set instead of sentAt when the order was cancelled before this message went out. */
+    private Instant suppressedAt;
     private boolean auditPublished;
     @Version private long version;
     protected NotificationRecord() { }
@@ -34,9 +36,14 @@ public class NotificationRecord {
         this.occurredAt = occurredAt; this.correlationId = correlationId; this.createdAt = Instant.now();
     }
     public void deliver(UUID orderId, UUID recipientId, String body) {
-        if (sentAt != null) return;
+        if (sentAt != null || suppressedAt != null) return;
         this.orderId = orderId; this.recipientId = recipientId; this.body = body; this.sentAt = Instant.now();
     }
+    public void suppress(UUID orderId, Instant at) {
+        if (sentAt != null || suppressedAt != null) return;
+        this.orderId = orderId; this.suppressedAt = at;
+    }
+    public Instant getSuppressedAt() { return suppressedAt; }
     public void markAuditPublished() { auditPublished = true; }
     public UUID getId() { return id; }
     public UUID getOrderId() { return orderId; }
