@@ -16,7 +16,7 @@ spring:
       # the kafka-streams-binder functions (FR11-FR13) in one definition --
       # Spring Cloud Stream routes each to the correct binder automatically based on
       # its KStream/KTable vs plain-type parameters.
-      definition: orderCancelledConsumer;orderReassignedConsumer;deliveryArrivedConsumer;orderPlacedConsumer;courierRegisteredConsumer;orderAssignedConsumer;deliveryEtaProjectionConsumer;etaRecalculation;nearDestinationDetection;arrivedDetection;riskDetection
+      definition: deliveryRiskProjectionConsumer;orderCancelledConsumer;orderReassignedConsumer;deliveryArrivedConsumer;orderPlacedConsumer;courierRegisteredConsumer;orderAssignedConsumer;deliveryEtaProjectionConsumer;etaRecalculation;nearDestinationDetection;arrivedDetection;riskDetection
     stream:
       bindings:
         orderCancelledConsumer-in-0:
@@ -41,6 +41,10 @@ spring:
         # Tracking projects its own FR11 output into a REST-queryable ETA view (ADR 0016).
         deliveryEtaProjectionConsumer-in-0:
           destination: fleetflow.tracking.delivery-eta-updated
+          group: tracking-service
+        # Same pattern for FR13's risk alerts, so the status endpoint can report them (FR16).
+        deliveryRiskProjectionConsumer-in-0:
+          destination: fleetflow.tracking.delivery-at-risk
           group: tracking-service
         # --- Regular binder: bootstrap publishers ---
         deliveryStarted-out-0:
@@ -93,6 +97,9 @@ spring:
         # or IntelliJ's config metadata (correctly) flags it as unresolvable and Spring
         # silently ignores it at runtime instead of actually enabling a DLQ.
         bindings:
+          deliveryRiskProjectionConsumer-in-0:
+            consumer:
+              enableDlq: true
           orderCancelledConsumer-in-0:
             consumer:
               enableDlq: true

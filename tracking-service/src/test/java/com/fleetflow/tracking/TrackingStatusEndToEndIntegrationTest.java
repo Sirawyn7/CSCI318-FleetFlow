@@ -99,7 +99,7 @@ class TrackingStatusEndToEndIntegrationTest {
         mockMvc.perform(get("/deliveries/order/{id}/status", orderId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.estimatedArrival").doesNotExist())
-                .andExpect(jsonPath("$.riskFlags").doesNotExist());
+                .andExpect(jsonPath("$.riskFlags").isEmpty());
 
         // Settle period for the Streams topology's KTable to materialize the snapshot.
         Thread.sleep(5000);
@@ -121,7 +121,7 @@ class TrackingStatusEndToEndIntegrationTest {
                 .andExpect(jsonPath("$.orderId").value(orderId.toString()))
                 .andExpect(jsonPath("$.estimatedArrival").value(view.getEstimatedArrival().toString()))
                 .andExpect(jsonPath("$.updatedAt").exists())
-                .andExpect(jsonPath("$.riskFlags").doesNotExist());
+                .andExpect(jsonPath("$.riskFlags").isEmpty());
         assertEquals(deliveryId, view.getDeliveryId());
     }
 

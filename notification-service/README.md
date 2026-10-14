@@ -84,22 +84,22 @@ TRACKING_STATUS_PATH defaults to /deliveries/order/{orderId}/status and expects:
 {
   "orderId":"<order UUID>",
   "estimatedArrival":"2026-10-07T08:10:00Z",
-  "riskFlags":null,
+  "riskFlags":["STATIONARY"],
   "updatedAt":"2026-10-07T07:55:00Z"
 }
 ~~~
 
-Tracking implements this endpoint using the newest delivery for the order and a
-persisted projection of DeliveryEtaUpdated. No Notification client configuration
+Tracking implements this endpoint using the newest delivery for the order and
+persisted projections of DeliveryEtaUpdated and DeliveryAtRisk. No Notification client configuration
 change is needed for the default path. See
 [ADR 0016](../docs/decisions/0016-tracking-status-read-model.md).
 
 A known delivery returns 200 even before an ETA is available; estimatedArrival and
 updatedAt are then null. An order without a Tracking delivery returns 404.
 updatedAt is the ETA event's observation time, which the answer exposes to show
-freshness. Tracking currently always returns null riskFlags: FR13 publishes risk
-alerts, but those alerts are not yet projected into this REST read model. Null means
-risk information unavailable; [] would mean Tracking reports no risk flags.
+freshness. riskFlags lists the FR13 reasons currently raised for the delivery
+(STATIONARY, OFF_PACE, SLA_BREACH); [] means Tracking reports no current risk, and
+null means risk information is unavailable.
 A 404, connection error, or mismatched orderId is unavailable data; the explainer
 can still report Order facts when Tracking is unavailable.
 
