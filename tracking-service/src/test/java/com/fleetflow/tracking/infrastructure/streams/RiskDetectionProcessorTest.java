@@ -107,6 +107,43 @@ class RiskDetectionProcessorTest {
         verify(arrived).put(delivery.deliveryId().toString(), start.plusSeconds(resume + 5).toEpochMilli());
     }
 
+    @SuppressWarnings("unchecked")
+    @Test void cooldownAppliesPerCourierSoAReassignedDeliveryIsJudgedAfresh() {
+        ProcessorContext<String, DeliveryAtRisk> context = mock(ProcessorContext.class);
+        WindowStore<String, RiskObservation> observations = mock(WindowStore.class);
+        when(context.getStateStore(RiskDetectionProcessor.WINDOW)).thenReturn(observations);
+        doReturn(mapStore()).when(context).getStateStore(RiskDetectionProcessor.LAST_PING);
+        doReturn(mapStore()).when(context).getStateStore(RiskDetectionProcessor.ALERTS);
+        doReturn(mapStore()).when(context).getStateStore(RiskDetectionProcessor.ARRIVED);
+        doReturn(mapStore()).when(context).getStateStore(RiskDetectionProcessor.ARRIVAL_COUNT);
+        when(observations.fetch(anyString(), any(Instant.class), any(Instant.class))).thenAnswer(call -> {
+            WindowStoreIterator<RiskObservation> iterator = mock(WindowStoreIterator.class);
+            var sample = new RiskObservation(call.getArgument(2), -33.8, 151.2, 11000);
+            when(iterator.hasNext()).thenReturn(true, false);
+            when(iterator.next()).thenReturn(KeyValue.pair(sample.capturedAt().toEpochMilli(), sample));
+            return iterator;
+        });
+        var policy = new RiskPolicy(Duration.ofMinutes(10), Duration.ofMinutes(5), Duration.ofMinutes(2),
+                30, 0.1, Duration.ofMinutes(10));
+        Instant start = Instant.parse("2026-10-08T00:00:00Z");
+        var original = snapshot(UUID.randomUUID(), start);
+        var processor = new RiskDetectionProcessor(policy);
+        processor.init(context);
+
+        processor.process(ping(original, start.plusSeconds(60), -33.8));
+        processor.process(ping(original, start.plusSeconds(120), -33.8)); // same courier, within cooldown
+        UUID replacement = UUID.randomUUID();
+        var reassigned = new ActiveDeliverySnapshot(original.deliveryId(), original.destinationLatitude(),
+                original.destinationLongitude(), original.averageSpeedKmh(), original.orderId(), replacement,
+                original.requestedDeliveryBy(), start.plusSeconds(150));
+        processor.process(ping(reassigned, start.plusSeconds(180), -33.8)); // new courier, still late
+
+        verify(context, times(1)).forward(argThat(record -> record.value().courierId().equals(original.courierId())));
+        verify(context, times(1)).forward(argThat(record -> record.value().courierId().equals(replacement)
+                && record.value().deliveryId().equals(original.deliveryId())
+                && record.value().riskReason().equals("SLA_BREACH")));
+    }
+
     private static ActiveDeliverySnapshot snapshot(UUID courier, Instant start) {
         return new ActiveDeliverySnapshot(UUID.randomUUID(), -33.9, 151.2, 28,
                 UUID.randomUUID(), courier, start, start);

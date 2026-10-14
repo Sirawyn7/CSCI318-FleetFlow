@@ -70,12 +70,14 @@ public class RiskDetectionProcessor implements Processor<String, DeliveryLocatio
         var window = new ArrayList<RiskObservation>();
         Instant windowStart = ping.capturedAt().minus(policy.window());
         if (delivery.startedAt().isAfter(windowStart)) windowStart = delivery.startedAt();
-        // Retain the delivery-wide alert cooldown, but never mix movement from different couriers.
+        // Never mix movement from different couriers.
         try (var iterator = observations.fetch(key, windowStart, ping.capturedAt())) {
             while (iterator.hasNext()) window.add(iterator.next().value);
         }
         for (String reason : RiskEvaluationService.evaluate(window, delivery.averageSpeedKmh(), delivery.requestedDeliveryBy(), policy)) {
-            String alertKey = key + ":" + reason;
+            // Cooldown per courier: after a reassignment the new courier is judged afresh, so a
+            // risk that persists is re-raised (and escalated by FR9) instead of hidden for 10 minutes.
+            String alertKey = key + ":" + delivery.courierId() + ":" + reason;
             Long lastAlert = alerts.get(alertKey);
             if (lastAlert != null && time - lastAlert < policy.alertCooldown().toMillis()) continue;
             alerts.put(alertKey, time);

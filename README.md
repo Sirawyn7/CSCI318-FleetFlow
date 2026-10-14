@@ -317,7 +317,8 @@ Tracking runs on port 8084. Delivery completion/proof is covered by UC7/FR14 bel
   The two topics have no cross-topic ordering guarantee (ADR 0011).
 - **FR13:** rolling event-time GPS observations detect `STATIONARY`, `OFF_PACE` and
   `SLA_BREACH`; publish `DeliveryAtRisk` with delivery/order/courier IDs. Thresholds
-  live under `tracking.risk`; repeated reasons have a 10-minute cooldown.
+  live under `tracking.risk`; a repeated reason has a 10-minute cooldown per courier,
+  so after a reassignment the new courier is evaluated afresh.
 
 `GET /deliveries/order/{orderId}/status` reports the latest ETA and current risk flags
 for an order's delivery. A `null` `estimatedArrival` means no ETA yet. `riskFlags`
