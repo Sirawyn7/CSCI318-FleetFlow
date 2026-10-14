@@ -23,7 +23,8 @@ public class DeliveryController {
             Instant startedAt, Instant completedAt, String routeSummary, String confirmation) {
         static DeliveryResponse from(Delivery d) {
             return new DeliveryResponse(d.getId(), d.getOrderId(), d.getCourierId(),
-                    d.getCompletedAt() == null ? "IN_TRANSIT" : "DELIVERED", d.getStartedAt(),
+                    d.getCompletedAt() != null ? "DELIVERED" : d.getCancelledAt() != null ? "CANCELLED" : "IN_TRANSIT",
+                    d.getStartedAt(),
                     d.getCompletedAt(), d.getRouteSummary(), d.getConfirmation());
         }
     }

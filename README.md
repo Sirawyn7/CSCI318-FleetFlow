@@ -104,9 +104,10 @@ transition in the status history, timestamped with the source event's time:
 Status only moves forward, so duplicate or late events change nothing, and
 `DELIVERED`, `FAILED` and `CANCELLED` are final. Once an order is `ASSIGNED`,
 cancellation returns 409. A cancellation accepted while the assignment is still in
-flight keeps the order `CANCELLED`; Dispatch then cancels the assignment and Fleet
-releases the courier's load. Tracking does not yet consume `OrderCancelled`, so a
-delivery started for an order cancelled in that window is still monitored.
+flight keeps the order `CANCELLED`; Dispatch then cancels the assignment, Fleet
+releases the courier's load, and Tracking stops monitoring the delivery (or never
+starts it, if the cancellation arrives first), so no further delivery notifications
+follow.
 Rejected lifecycle events retry, then go to `error.<source-topic>.order-service`.
 
 Items are modeled as a description (1–255 characters) and a positive quantity, e.g.
@@ -304,7 +305,11 @@ delivery returns 404 with an error message. See
 separate read model rather than querying the Streams topology's state store directly.
 
 Tracking bootstraps deliveries from `OrderPlaced`, `CourierRegistered` and
-`OrderAssigned`. Each courier-keyed snapshot contains all deliveries that have neither arrived nor completed.
+`OrderAssigned`. Each courier-keyed snapshot contains all deliveries that have not
+arrived, completed or been cancelled. On `OrderCancelled`, Tracking marks the delivery
+cancelled and republishes the courier's snapshot, which stops ETA, geofence and risk
+processing for it once the topologies' tables catch up. A cancellation that arrives
+before `OrderAssigned` is remembered, so that delivery is never started.
 Missing prerequisites cause retries, then the configured DLQ; replay failed assignments
 once their prerequisites exist. GPS arriving before the snapshot is materialized does
 not join; the next ping updates tracking.
@@ -364,7 +369,8 @@ it on port 8084 using the assigned courier ID:
 
 Text fields must contain 1–255 characters after trimming. Completion returns 200
 with `DELIVERED`, both timestamps and proof. Identical retries preserve the original
-proof and do not republish. Different proof or a mismatched courier returns 409;
+proof and do not republish. Different proof, a mismatched courier or a cancelled
+delivery (reported with status `CANCELLED`) returns 409;
 invalid input returns 400; a missing delivery returns 404. An unknown order's history
 is an empty list. The supplied courier ID is checked against the assignment, but
 this API does not authenticate a caller's identity.

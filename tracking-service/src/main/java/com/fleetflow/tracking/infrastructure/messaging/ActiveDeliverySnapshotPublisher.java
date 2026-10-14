@@ -34,7 +34,7 @@ public class ActiveDeliverySnapshotPublisher {
     /** An empty list clears the courier's materialized snapshot after the final arrival or completion. */
     public void publish(java.util.UUID courierId) {
         CourierDeliveriesSnapshot snapshot = new CourierDeliveriesSnapshot(
-                deliveries.findByCourierIdAndArrivedAtIsNullAndCompletedAtIsNull(courierId).stream().map(d -> new ActiveDeliverySnapshot(
+                deliveries.findByCourierIdAndArrivedAtIsNullAndCompletedAtIsNullAndCancelledAtIsNull(courierId).stream().map(d -> new ActiveDeliverySnapshot(
                         d.getId(), d.getDestination().latitude(), d.getDestination().longitude(),
                         d.getAverageSpeedKmh(), d.getOrderId(), d.getCourierId(),
                         d.getRequestedDeliveryBy(), d.getMonitoringStartedAt())).toList());

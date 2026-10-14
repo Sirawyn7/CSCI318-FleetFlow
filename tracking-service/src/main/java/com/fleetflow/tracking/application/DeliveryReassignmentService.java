@@ -31,7 +31,7 @@ public class DeliveryReassignmentService {
         var found = deliveries.findFirstByOrderIdOrderByStartedAtDesc(orderId)
                 .orElseThrow(() -> new IllegalStateException("Delivery not started yet"));
         var delivery = deliveries.findForCompletion(found.getId()).orElseThrow();
-        if (delivery.getCompletedAt() == null && delivery.getArrivedAt() == null) {
+        if (delivery.getCompletedAt() == null && delivery.getArrivedAt() == null && delivery.getCancelledAt() == null) {
             delivery.reassign(previous, replacement, speeds.kmhFor(couriers.findById(replacement).orElseThrow().getVehicleType()));
             deliveries.saveAndFlush(delivery);
         }
