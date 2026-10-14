@@ -185,7 +185,7 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | Event | Publisher | Consumers |
 |---|---|---|
 | `OrderPlaced` | Order | Dispatch *(documented — `AGENTS.md` line 104)*, Tracking *(documented — FR11, delivery-destination bootstrap)* |
-| `OrderCancelled` | Order | Dispatch *(documented — backlog removal and held-assignment cancellation, FR3 review fix)*, Fleet *(documented — releases active load and retains a cancellation tombstone for late assignment events)* |
+| `OrderCancelled` | Order | Dispatch *(documented — backlog removal and held-assignment cancellation, FR3 review fix)*, Fleet *(documented — releases active load and retains a cancellation tombstone for late assignment events)*, Tracking *(documented — FR3: stops monitoring the delivery, or never starts it if cancellation arrives first)* |
 | `CourierRegistered` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11, vehicle/average-speed bootstrap)* |
 | `CourierAvailabilityChanged` | Fleet | Dispatch *(documented — §7; also the FR9 offline trigger)* |
 | `CourierLocationUpdated` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11–FR13)* |

@@ -8,6 +8,8 @@ import com.fleetflow.tracking.infrastructure.persistence.CourierVehicleTypeViewR
 import com.fleetflow.tracking.infrastructure.persistence.DeliveryJpaRepository;
 import com.fleetflow.tracking.infrastructure.persistence.OrderDestinationView;
 import com.fleetflow.tracking.infrastructure.persistence.OrderDestinationViewRepository;
+import com.fleetflow.tracking.infrastructure.persistence.OrderCancellationState;
+import com.fleetflow.tracking.infrastructure.persistence.OrderCancellationStateRepository;
 import com.fleetflow.tracking.infrastructure.persistence.ProcessedEvent;
 import com.fleetflow.tracking.infrastructure.persistence.ProcessedEventRepository;
 import org.springframework.stereotype.Service;
@@ -38,13 +40,16 @@ public class DeliveryBootstrapService {
     private final ProcessedEventRepository processedEventRepository;
     private final DeliveryStartedEventPublisher deliveryStartedPublisher;
     private final ActiveDeliverySnapshotPublisher activeDeliverySnapshotPublisher;
+    private final OrderCancellationStateRepository cancellations;
 
     public DeliveryBootstrapService(OrderDestinationViewRepository destinationRepository,
                                     CourierVehicleTypeViewRepository vehicleTypeRepository,
                                     DeliveryJpaRepository deliveryRepository,
                                     ProcessedEventRepository processedEventRepository,
                                     DeliveryStartedEventPublisher deliveryStartedPublisher,
-                                    ActiveDeliverySnapshotPublisher activeDeliverySnapshotPublisher, VehicleSpeedConfiguration speeds) {
+                                    ActiveDeliverySnapshotPublisher activeDeliverySnapshotPublisher, VehicleSpeedConfiguration speeds,
+                                    OrderCancellationStateRepository cancellations) {
+        this.cancellations = cancellations;
         this.speeds = speeds;
         this.destinationRepository = destinationRepository;
         this.vehicleTypeRepository = vehicleTypeRepository;
@@ -57,6 +62,18 @@ public class DeliveryBootstrapService {
     @Transactional
     public void bootstrap(UUID eventId, String eventType, UUID orderId, UUID courierId) {
         if (processedEventRepository.existsById(eventId)) {
+            return;
+        }
+        // Lock order: cancellation state, then courier, then delivery (as DeliveryCancellationService).
+        // An absent row can't be locked, so racing first inserts conflict and Kafka retries one.
+        var state = cancellations.findForUpdate(orderId).orElseGet(() -> {
+            var created = new OrderCancellationState(orderId);
+            cancellations.saveAndFlush(created);
+            return created;
+        });
+        if (state.isCancelled()) {
+            // FR3: no delivery, no DeliveryStarted, so the customer gets no "in transit" alert.
+            processedEventRepository.save(new ProcessedEvent(eventId, eventType, Instant.now()));
             return;
         }
 

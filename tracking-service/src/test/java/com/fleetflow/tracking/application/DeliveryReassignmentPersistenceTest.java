@@ -34,8 +34,8 @@ class DeliveryReassignmentPersistenceTest {
         var updated = deliveries.findById(d.getId()).orElseThrow();
         assertEquals(replacement, updated.getCourierId());
         assertEquals(d.getStartedAt().toEpochMilli(), updated.getStartedAt().toEpochMilli());
-        assertTrue(deliveries.findByCourierIdAndArrivedAtIsNullAndCompletedAtIsNull(old).isEmpty());
-        assertEquals(d.getId(), deliveries.findByCourierIdAndArrivedAtIsNullAndCompletedAtIsNull(replacement).getFirst().getId());
+        assertTrue(deliveries.findByCourierIdAndArrivedAtIsNullAndCompletedAtIsNullAndCancelledAtIsNull(old).isEmpty());
+        assertEquals(d.getId(), deliveries.findByCourierIdAndArrivedAtIsNullAndCompletedAtIsNullAndCancelledAtIsNull(replacement).getFirst().getId());
         verify(snapshots).publish(old); verify(snapshots).publish(replacement);
         assertThrows(IllegalStateException.class, () -> updated.complete(old, "route", "proof", java.time.Instant.now()));
         assertTrue(updated.complete(replacement, "route", "proof", java.time.Instant.now()));

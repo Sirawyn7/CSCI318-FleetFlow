@@ -45,7 +45,7 @@ public class Delivery {
         if (replacement == null || replacement.equals(previous) || !Double.isFinite(speed) || speed <= 0)
             throw new IllegalArgumentException("Valid replacement and speed required");
         if (courierId.equals(replacement)) return;
-        if (!courierId.equals(previous) || completedAt != null || arrivedAt != null)
+        if (!courierId.equals(previous) || completedAt != null || arrivedAt != null || cancelledAt != null)
             throw new IllegalStateException("Delivery cannot be reassigned");
         courierId = replacement;
         averageSpeedKmh = speed;
@@ -56,6 +56,9 @@ public class Delivery {
 
     /** Completion proof is immutable audit evidence owned by this aggregate. */
     public boolean complete(UUID courierId, String routeSummary, String confirmation, Instant completedAt) {
+        if (cancelledAt != null) {
+            throw new IllegalStateException("A cancelled delivery cannot be completed");
+        }
         if (!this.courierId.equals(courierId)) {
             throw new IllegalStateException("Only the assigned courier can complete this delivery");
         }
@@ -96,10 +99,27 @@ public class Delivery {
         if (at == null || at.isBefore(startedAt)) {
             throw new IllegalArgumentException("Arrival must be at or after delivery start");
         }
-        if (arrivedAt == null) arrivedAt = at;
+        if (arrivedAt == null && cancelledAt == null) arrivedAt = at;
     }
 
     public Instant getArrivedAt() { return arrivedAt; }
+
+    private Instant cancelledAt;
+
+    /**
+     * FR3: a cancelled order stops being monitored. Arrival or completion already ended
+     * the delivery, so a later cancellation leaves that record unchanged.
+     *
+     * @return whether the delivery changed
+     */
+    public boolean cancel(Instant at) {
+        if (at == null) throw new IllegalArgumentException("Cancellation time is required");
+        if (cancelledAt != null || arrivedAt != null || completedAt != null) return false;
+        cancelledAt = at;
+        return true;
+    }
+
+    public Instant getCancelledAt() { return cancelledAt; }
 
     protected Delivery() {
         // JPA

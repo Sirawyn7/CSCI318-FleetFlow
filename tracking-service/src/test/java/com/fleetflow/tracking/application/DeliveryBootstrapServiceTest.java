@@ -40,10 +40,27 @@ class DeliveryBootstrapServiceTest {
     @Mock
     private ActiveDeliverySnapshotPublisher activeDeliverySnapshotPublisher;
 
+    @Mock
+    private OrderCancellationStateRepository cancellations;
+
     private DeliveryBootstrapService service() {
         return new DeliveryBootstrapService(destinationRepository, vehicleTypeRepository, deliveryRepository,
                 processedEventRepository, deliveryStartedPublisher, activeDeliverySnapshotPublisher,
-                new VehicleSpeedConfiguration(new org.springframework.mock.env.MockEnvironment()));
+                new VehicleSpeedConfiguration(new org.springframework.mock.env.MockEnvironment()), cancellations);
+    }
+
+    @Test
+    void cancelledOrderIsAcknowledgedWithoutStartingADelivery() {
+        UUID eventId = UUID.randomUUID(), orderId = UUID.randomUUID(), courierId = UUID.randomUUID();
+        var cancelled = new OrderCancellationState(orderId);
+        cancelled.cancel();
+        when(cancellations.findForUpdate(orderId)).thenReturn(Optional.of(cancelled));
+
+        service().bootstrap(eventId, "OrderAssigned", orderId, courierId);
+
+        verify(processedEventRepository).save(any(ProcessedEvent.class));
+        org.mockito.Mockito.verifyNoInteractions(destinationRepository, vehicleTypeRepository, deliveryRepository,
+                deliveryStartedPublisher, activeDeliverySnapshotPublisher);
     }
 
     @Test
