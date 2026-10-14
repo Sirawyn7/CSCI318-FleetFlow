@@ -11,12 +11,27 @@ spring:
     hibernate:
       ddl-auto: update
   cloud:
+    function:
+      # FR2 lifecycle consumers (semicolon-separated, see dispatch-service's application.yml).
+      definition: orderAssignedConsumer;deliveryStartedConsumer;deliveryCompletedConsumer;assignmentFailedConsumer
     stream:
       bindings:
         orderPlaced-out-0:
           destination: fleetflow.order.order-placed
         orderCancelled-out-0:
           destination: fleetflow.order.order-cancelled
+        orderAssignedConsumer-in-0:
+          destination: fleetflow.dispatch.order-assigned
+          group: order-service
+        deliveryStartedConsumer-in-0:
+          destination: fleetflow.tracking.delivery-started
+          group: order-service
+        deliveryCompletedConsumer-in-0:
+          destination: fleetflow.tracking.delivery-completed
+          group: order-service
+        assignmentFailedConsumer-in-0:
+          destination: fleetflow.dispatch.assignment-failed
+          group: order-service
       kafka:
         binder:
           brokers: ${KAFKA_BROKERS:localhost:9092}
@@ -27,3 +42,15 @@ spring:
           orderCancelled-out-0:
             producer:
               sync: true
+          orderAssignedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          deliveryStartedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          deliveryCompletedConsumer-in-0:
+            consumer:
+              enableDlq: true
+          assignmentFailedConsumer-in-0:
+            consumer:
+              enableDlq: true

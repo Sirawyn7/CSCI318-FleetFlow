@@ -155,4 +155,41 @@ public class Order {
         status = OrderStatus.CANCELLED;
         statusHistory.add(new OrderStatusChange(status, Instant.now()));
     }
+
+    /**
+     * Applies a lifecycle transition reported by Dispatch or Tracking (FR2). Transitions
+     * only move forward, so duplicate, late or out-of-order events are no-ops; this makes
+     * the consumers idempotent without a processed-event ledger. Terminal orders never change.
+     *
+     * @return whether the status changed
+     */
+    public boolean advanceTo(OrderStatus target, Instant at) {
+        if (target == null || at == null) {
+            throw new IllegalArgumentException("Target status and transition time are required");
+        }
+        if (target == OrderStatus.PLACED || target == OrderStatus.CANCELLED) {
+            throw new IllegalArgumentException(target + " is not reported by other services");
+        }
+        if (isTerminal(status)) return false;
+        if (target == OrderStatus.FAILED ? status != OrderStatus.PLACED : progress(target) <= progress(status)) {
+            return false;
+        }
+        status = target;
+        statusHistory.add(new OrderStatusChange(target, at));
+        return true;
+    }
+
+    private static boolean isTerminal(OrderStatus status) {
+        return status == OrderStatus.DELIVERED || status == OrderStatus.FAILED || status == OrderStatus.CANCELLED;
+    }
+
+    private static int progress(OrderStatus status) {
+        return switch (status) {
+            case PLACED -> 0;
+            case ASSIGNED -> 1;
+            case IN_TRANSIT -> 2;
+            case DELIVERED -> 3;
+            case FAILED, CANCELLED -> throw new IllegalStateException(status + " has no progress rank");
+        };
+    }
 }

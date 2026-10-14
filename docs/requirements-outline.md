@@ -190,15 +190,15 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | `CourierAvailabilityChanged` | Fleet | Dispatch *(documented — §7; also the FR9 offline trigger)* |
 | `CourierLocationUpdated` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11–FR13)* |
 | `CourierLoadChanged` | Fleet | Dispatch *(documented — ADR 0009; UC3 now projects versioned load and acknowledges local reservations)* |
-| `OrderAssigned` | Dispatch | Tracking *(documented — delivery bootstrap)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)*, Order *(inferred — FR2 status)* |
+| `OrderAssigned` | Dispatch | Tracking *(documented — delivery bootstrap)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)*, Order *(documented — FR2 status: ASSIGNED)* |
 | `OrderReassigned` | Dispatch | Tracking, Fleet *(implemented in UC4, ADR 0017)*; Notification *(documented — FR15, implemented)* |
-| `AssignmentFailed` | Dispatch | Notification *(documented — FR15 review fix)*, Order *(inferred)* |
-| `DeliveryStarted` | Tracking | Dispatch *(UC4 active delivery projection, ADR 0017)*, Order *(inferred — FR2 status)*, Notification *(documented — FR15, "in transit")* |
+| `AssignmentFailed` | Dispatch | Notification *(documented — FR15 review fix)*, Order *(documented — FR2 status: FAILED)* |
+| `DeliveryStarted` | Tracking | Dispatch *(UC4 active delivery projection, ADR 0017)*, Order *(documented — FR2 status: IN_TRANSIT)*, Notification *(documented — FR15, "in transit")* |
 | `DeliveryEtaUpdated` | Tracking | Notification *(inferred)* |
 | `DeliveryNearDestination` | Tracking | Notification *(documented — FR15)* |
 | `DeliveryArrived` | Tracking | Dispatch *(UC4 terminal projection, ADR 0017)*, Tracking *(internal arrival persistence/snapshot cleanup — ADR 0013)*, Notification *(inferred)* |
 | `DeliveryAtRisk` | Tracking | Dispatch *(documented — FR9)*, Notification *(documented — FR15)* |
-| `DeliveryCompleted` | Tracking | Dispatch *(UC4 terminal projection, ADR 0017)*, Order *(inferred — FR2)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)* |
+| `DeliveryCompleted` | Tracking | Dispatch *(UC4 terminal projection, ADR 0017)*, Order *(documented — FR2 status: DELIVERED)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)* |
 | `NotificationSent` | Notification | none — terminal, audit-only. Worth confirming this is wanted at all rather than assumed. |
 
 Two schema gaps surfaced directly by building this matrix, both raised as ADRs rather than resolved here:

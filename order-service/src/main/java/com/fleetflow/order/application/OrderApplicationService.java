@@ -3,6 +3,7 @@ package com.fleetflow.order.application;
 import com.fleetflow.order.domain.Address;
 import com.fleetflow.order.domain.Order;
 import com.fleetflow.order.domain.OrderItem;
+import com.fleetflow.order.domain.OrderStatus;
 import java.util.List;
 import com.fleetflow.order.domain.OrderRepository;
 
@@ -96,5 +97,20 @@ public class OrderApplicationService {
         orderEventPort.publishOrderCancelled(order);
 
         return Optional.of(order);
+    }
+
+    /**
+     * Records a lifecycle change reported by another context. Takes the same row lock as
+     * cancellation, so a concurrent cancel and assignment are applied one after the other.
+     * A missing order is thrown rather than skipped: Order publishes OrderPlaced before its
+     * own commit, so a very fast downstream event can arrive first and must be retried.
+     */
+    @Transactional
+    public void recordLifecycle(UUID orderId, OrderStatus status, Instant at) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new IllegalStateException("Order not found yet: " + orderId));
+        if (order.advanceTo(status, at)) {
+            orderRepository.save(order);
+        }
     }
 }
