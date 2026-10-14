@@ -1,0 +1,831 @@
+{
+  "info": {
+    "name": "FleetFlow demo",
+    "description": "End-to-end walkthrough of FleetFlow's use cases. Start Kafka and all five services first (see the README's Demo section), then run the folders in order, either step by step or with the Collection Runner. Each run creates new couriers, orders and a new customer, so it can be repeated against the same databases.\n\nRequests marked \"(waits)\" pause for `settleMs` (default 6000 ms) before sending, to give Kafka events, the Kafka Streams topologies and the notification worker time to process. Increase `settleMs` on a slow machine.\n\nAll coordinates are in Dispatch's demo ZONE_A (Wollongong). The dispatch agent is used when GEMINI_API_KEY is set; otherwise the rule-based fallback assigns couriers, and the explainer gives its factual fallback answer.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "orderUrl", "value": "http://localhost:8081" },
+    { "key": "fleetUrl", "value": "http://localhost:8082" },
+    { "key": "dispatchUrl", "value": "http://localhost:8083" },
+    { "key": "trackingUrl", "value": "http://localhost:8084" },
+    { "key": "notificationUrl", "value": "http://localhost:8085" },
+    { "key": "settleMs", "value": "6000" },
+    { "key": "customerId", "value": "" },
+    { "key": "deadlineLater", "value": "" },
+    { "key": "deadlineSoon", "value": "" },
+    { "key": "courierA", "value": "" },
+    { "key": "courierB", "value": "" },
+    { "key": "courierC", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "deliveryId", "value": "" },
+    { "key": "conversationId", "value": "" },
+    { "key": "riskOrderId", "value": "" },
+    { "key": "riskDeliveryId", "value": "" },
+    { "key": "reassignOrderId", "value": "" },
+    { "key": "reassignDeliveryId", "value": "" },
+    { "key": "cancelOrderId", "value": "" },
+    { "key": "quickCancelOrderId", "value": "" },
+    { "key": "failedOrderId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Fleet setup (UC2, UC5)",
+      "description": "Register a courier, put them on shift and report their location. Dispatch only assigns couriers who are on shift, in a zone covering the pickup, and have a known location.",
+      "item": [
+        {
+          "name": "1.1 Register courier A",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "// A fresh customer per run keeps the inbox in folder 4 easy to read.",
+              "pm.collectionVariables.set('customerId', pm.variables.replaceIn('{{$guid}}'));",
+              "pm.collectionVariables.set('deadlineLater', new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString());"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Courier registered (201)', () => pm.response.to.have.status(201));",
+              "const body = pm.response.json();",
+              "pm.test('New couriers start off shift', () => pm.expect(body.status).to.eql('OFFLINE'));",
+              "pm.collectionVariables.set('courierA', body.courierId);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"vehicleType\":\"VAN\",\"capacity\":3,\"operatingZone\":\"ZONE_A\"}" },
+            "url": "{{fleetUrl}}/api/couriers"
+          }
+        },
+        {
+          "name": "1.2 Courier A goes on shift (FR5)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('On shift', () => {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().status).to.eql('AVAILABLE');",
+              "});"
+            ] } }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"available\":true}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierA}}/availability"
+          }
+        },
+        {
+          "name": "1.3 Courier A reports location near the pickup (FR10)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Location recorded', () => pm.response.to.have.status(200));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"latitude\":-34.4060,\"longitude\":150.8790}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierA}}/location"
+          }
+        },
+        {
+          "name": "1.4 View courier A's profile and load (FR4, FR6)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const body = pm.response.json();",
+              "pm.test('Active, on shift, no orders yet', () => {",
+              "  pm.expect(body.deactivated).to.eql(false);",
+              "  pm.expect(body.status).to.eql('AVAILABLE');",
+              "  pm.expect(body.activeOrderCount).to.eql(0);",
+              "});"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{fleetUrl}}/api/couriers/{{courierA}}" }
+        }
+      ]
+    },
+    {
+      "name": "2. Place an order and assign a courier (UC1, UC3)",
+      "description": "Placing an order publishes OrderPlaced. Dispatch's agent (or the rule-based fallback) assigns a courier and publishes OrderAssigned, which Order, Fleet, Tracking and Notification all consume.",
+      "item": [
+        {
+          "name": "2.1 Place an order (FR1)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Order created (201)', () => pm.response.to.have.status(201));",
+              "const body = pm.response.json();",
+              "pm.test('Starts PLACED', () => pm.expect(body.status).to.eql('PLACED'));",
+              "pm.collectionVariables.set('orderId', body.id);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"customerId\":\"{{customerId}}\",\"pickupStreet\":\"Northfields Ave\",\"pickupSuburb\":\"Wollongong\",\"pickupState\":\"NSW\",\"pickupPostcode\":\"2522\",\"pickupLatitude\":-34.4054,\"pickupLongitude\":150.8784,\"dropoffStreet\":\"Crown St\",\"dropoffSuburb\":\"Wollongong\",\"dropoffState\":\"NSW\",\"dropoffPostcode\":\"2500\",\"dropoffLatitude\":-34.4248,\"dropoffLongitude\":150.8931,\"packageDetails\":\"Textbooks\",\"serviceLevel\":\"STANDARD\",\"requestedDeliveryBy\":\"{{deadlineLater}}\",\"items\":[{\"description\":\"Textbook\",\"quantity\":2}]}" },
+            "url": "{{orderUrl}}/orders"
+          }
+        },
+        {
+          "name": "2.2 Order is assigned (FR2, FR7/FR8) (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const body = pm.response.json();",
+              "pm.test('Status is ASSIGNED', () => pm.expect(body.status).to.eql('ASSIGNED'));",
+              "pm.test('History records each stage with a timestamp', () => {",
+              "  pm.expect(body.statusHistory.map(h => h.status)).to.eql(['PLACED', 'ASSIGNED']);",
+              "  body.statusHistory.forEach(h => pm.expect(h.changedAt).to.be.a('string'));",
+              "});"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{orderUrl}}/orders/{{orderId}}" }
+        },
+        {
+          "name": "2.3 Courier A now carries one order (FR6)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Load is 1', () => pm.expect(pm.response.json().activeOrderCount).to.eql(1));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{fleetUrl}}/api/couriers/{{courierA}}" }
+        }
+      ]
+    },
+    {
+      "name": "3. Track the delivery live (UC5, UC6)",
+      "description": "Tracking starts a delivery on OrderAssigned. Each location ping from Fleet is joined with the courier's active deliveries in Kafka Streams to recalculate the ETA (FR11) and detect nearing and arrival (FR12).",
+      "item": [
+        {
+          "name": "3.1 Delivery has started (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "// Also gives the Streams topologies time to load the new delivery before pings arrive.",
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const deliveries = pm.response.json();",
+              "pm.test('One delivery, with courier A', () => {",
+              "  pm.expect(deliveries).to.have.lengthOf(1);",
+              "  pm.expect(deliveries[0].courierId).to.eql(pm.collectionVariables.get('courierA'));",
+              "  pm.expect(deliveries[0].status).to.eql('IN_TRANSIT');",
+              "});",
+              "pm.collectionVariables.set('deliveryId', deliveries[0].id);"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{trackingUrl}}/api/deliveries?orderId={{orderId}}" }
+        },
+        {
+          "name": "3.2 Courier A heads towards the drop-off",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Location recorded', () => pm.response.to.have.status(200));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"latitude\":-34.4150,\"longitude\":150.8860}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierA}}/location"
+          }
+        },
+        {
+          "name": "3.3 Live ETA and risk (FR11, FR16) (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const body = pm.response.json();",
+              "pm.test('An ETA has been calculated', () => pm.expect(body.estimatedArrival).to.be.a('string'));",
+              "pm.test('No current risk on a two-hour deadline', () => pm.expect(body.riskFlags).to.eql([]));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{trackingUrl}}/deliveries/order/{{orderId}}/status" }
+        },
+        {
+          "name": "3.4 Courier A is within 500 m of the drop-off (FR12)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Location recorded', () => pm.response.to.have.status(200));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"latitude\":-34.4220,\"longitude\":150.8915}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierA}}/location"
+          }
+        },
+        {
+          "name": "3.5 Courier A arrives at the drop-off (FR12)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Location recorded', () => pm.response.to.have.status(200));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"latitude\":-34.4249,\"longitude\":150.8932}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierA}}/location"
+          }
+        },
+        {
+          "name": "3.6 Order shows IN_TRANSIT (FR2)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status is IN_TRANSIT', () => pm.expect(pm.response.json().status).to.eql('IN_TRANSIT'));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{orderUrl}}/orders/{{orderId}}" }
+        }
+      ]
+    },
+    {
+      "name": "4. Customer notifications and status explainer (UC8)",
+      "description": "Lifecycle events become in-app notifications (FR15). The explainer agent (FR16) answers plain-language questions using read-only tools that call Order and Tracking.",
+      "item": [
+        {
+          "name": "4.1 Customer inbox (FR15) (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const orderId = pm.collectionVariables.get('orderId');",
+              "const kinds = pm.response.json().filter(m => m.orderId === orderId).map(m => m.kind);",
+              "['ASSIGNED', 'IN_TRANSIT', 'NEAR_DESTINATION'].forEach(kind =>",
+              "  pm.test('Inbox has ' + kind, () => pm.expect(kinds).to.include(kind)));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{notificationUrl}}/notifications?customerId={{customerId}}" }
+        },
+        {
+          "name": "4.2 Ask the explainer (FR16)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const body = pm.response.json();",
+              "pm.test('An answer was returned', () => pm.expect(body.answer).to.be.a('string').and.not.empty);",
+              "console.log(body.fallback ? 'Factual fallback answer (model unavailable or not configured)' : 'Answered by the model');",
+              "pm.collectionVariables.set('conversationId', body.conversationId);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"question\":\"Where is my order and when will it arrive?\"}" },
+            "url": "{{notificationUrl}}/orders/{{orderId}}/explanations"
+          }
+        },
+        {
+          "name": "4.3 Follow-up question in the same conversation",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Same conversation continues', () =>",
+              "  pm.expect(pm.response.json().conversationId).to.eql(pm.collectionVariables.get('conversationId')));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"question\":\"Is anything delaying it?\",\"conversationId\":\"{{conversationId}}\"}" },
+            "url": "{{notificationUrl}}/orders/{{orderId}}/explanations"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Complete with proof of delivery (UC7)",
+      "description": "The courier records a route summary and confirmation (FR14). Completion publishes DeliveryCompleted, which releases the courier's load and finishes the order.",
+      "item": [
+        {
+          "name": "5.1 Courier A completes the delivery (FR14)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const body = pm.response.json();",
+              "pm.test('Delivered with proof', () => {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(body.status).to.eql('DELIVERED');",
+              "  pm.expect(body.confirmation).to.eql('Received by Alex at reception');",
+              "});"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"courierId\":\"{{courierA}}\",\"routeSummary\":\"Northfields Ave via Princes Hwy to Crown St\",\"confirmation\":\"Received by Alex at reception\"}" },
+            "url": "{{trackingUrl}}/api/deliveries/{{deliveryId}}/complete"
+          }
+        },
+        {
+          "name": "5.2 Retrying the same completion is safe",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Identical retry returns the original record (no second event)', () => {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().status).to.eql('DELIVERED');",
+              "});"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"courierId\":\"{{courierA}}\",\"routeSummary\":\"Northfields Ave via Princes Hwy to Crown St\",\"confirmation\":\"Received by Alex at reception\"}" },
+            "url": "{{trackingUrl}}/api/deliveries/{{deliveryId}}/complete"
+          }
+        },
+        {
+          "name": "5.3 Order shows DELIVERED with full history (FR2) (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const body = pm.response.json();",
+              "pm.test('Status is DELIVERED', () => pm.expect(body.status).to.eql('DELIVERED'));",
+              "pm.test('Full lifecycle recorded', () =>",
+              "  pm.expect(body.statusHistory.map(h => h.status)).to.eql(['PLACED', 'ASSIGNED', 'IN_TRANSIT', 'DELIVERED']));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{orderUrl}}/orders/{{orderId}}" }
+        },
+        {
+          "name": "5.4 Courier A's load is released (FR6)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Load back to 0', () => pm.expect(pm.response.json().activeOrderCount).to.eql(0));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{fleetUrl}}/api/couriers/{{courierA}}" }
+        },
+        {
+          "name": "5.5 Customer is told it was delivered (FR15) (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const orderId = pm.collectionVariables.get('orderId');",
+              "pm.test('Inbox has DELIVERED', () => pm.expect(pm.response.json()",
+              "  .filter(m => m.orderId === orderId).map(m => m.kind)).to.include('DELIVERED'));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{notificationUrl}}/notifications?customerId={{customerId}}" }
+        }
+      ]
+    },
+    {
+      "name": "6. Risk detection and escalation (FR13, FR16, UC4/FR9)",
+      "description": "An order due in one minute, with its courier 12 km away, is predicted to miss its deadline on the first ping (SLA_BREACH). Dispatch makes its one automated reassignment attempt, but no other courier is on shift, so the delivery stays put. The exception is held for a 10-minute cooldown and then escalated to the operator queue, never retried automatically.",
+      "item": [
+        {
+          "name": "6.1 Place an order due in one minute",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "pm.collectionVariables.set('deadlineSoon', new Date(Date.now() + 60 * 1000).toISOString());"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Order created (201)', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('riskOrderId', pm.response.json().id);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"customerId\":\"{{customerId}}\",\"pickupStreet\":\"Northfields Ave\",\"pickupSuburb\":\"Wollongong\",\"pickupState\":\"NSW\",\"pickupPostcode\":\"2522\",\"pickupLatitude\":-34.4054,\"pickupLongitude\":150.8784,\"dropoffStreet\":\"Lawrence Hargrave Dr\",\"dropoffSuburb\":\"Thirroul\",\"dropoffState\":\"NSW\",\"dropoffPostcode\":\"2515\",\"dropoffLatitude\":-34.3176,\"dropoffLongitude\":150.9211,\"packageDetails\":\"Urgent documents\",\"serviceLevel\":\"EXPRESS\",\"requestedDeliveryBy\":\"{{deadlineSoon}}\"}" },
+            "url": "{{orderUrl}}/orders"
+          }
+        },
+        {
+          "name": "6.2 Delivery starts with courier A (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const deliveries = pm.response.json();",
+              "pm.test('Assigned to courier A', () =>",
+              "  pm.expect(deliveries[0].courierId).to.eql(pm.collectionVariables.get('courierA')));",
+              "pm.collectionVariables.set('riskDeliveryId', deliveries[0].id);"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{trackingUrl}}/api/deliveries?orderId={{riskOrderId}}" }
+        },
+        {
+          "name": "6.3 Courier A pings 12 km from the drop-off (FR13) (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "// Waits for the Streams topologies to load the new delivery, so this ping is evaluated.",
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Location recorded', () => pm.response.to.have.status(200));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"latitude\":-34.4249,\"longitude\":150.8932}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierA}}/location"
+          }
+        },
+        {
+          "name": "6.4 Status shows the SLA risk (FR16) (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const body = pm.response.json();",
+              "pm.test('SLA_BREACH reported', () => pm.expect(body.riskFlags).to.include('SLA_BREACH'));",
+              "pm.test('ETA is after the requested time', () =>",
+              "  pm.expect(new Date(body.estimatedArrival) > new Date(pm.collectionVariables.get('deadlineSoon'))).to.eql(true));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{trackingUrl}}/deliveries/order/{{riskOrderId}}/status" }
+        },
+        {
+          "name": "6.5 Customer was warned (FR15) (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const riskOrderId = pm.collectionVariables.get('riskOrderId');",
+              "pm.test('Inbox has AT_RISK', () => pm.expect(pm.response.json()",
+              "  .filter(m => m.orderId === riskOrderId).map(m => m.kind)).to.include('AT_RISK'));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{notificationUrl}}/notifications?customerId={{customerId}}" }
+        },
+        {
+          "name": "6.6 Explainer answers \"why is it late?\" (FR16)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const body = pm.response.json();",
+              "pm.test('An answer was returned', () => pm.expect(body.answer).to.be.a('string').and.not.empty);",
+              "pm.test('Internal risk codes are not shown to the customer', () =>",
+              "  pm.expect(body.answer).to.not.include('SLA_BREACH'));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"question\":\"Why is my delivery going to be late?\"}" },
+            "url": "{{notificationUrl}}/orders/{{riskOrderId}}/explanations"
+          }
+        },
+        {
+          "name": "6.7 No replacement courier, so the delivery stays with A (FR9)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Still with courier A', () =>",
+              "  pm.expect(pm.response.json()[0].courierId).to.eql(pm.collectionVariables.get('courierA')));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{trackingUrl}}/api/deliveries?orderId={{riskOrderId}}" }
+        },
+        {
+          "name": "6.8 Operator exception queue (re-run after 10 minutes)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Queue is readable', () => pm.response.to.have.status(200));",
+              "const entry = pm.response.json().find(e => e.orderId === pm.collectionVariables.get('riskOrderId'));",
+              "console.log(entry",
+              "  ? 'Escalated: ' + JSON.stringify(entry)",
+              "  : 'Not escalated yet: the cooldown runs 10 minutes from the reassignment attempt. Re-send this request later.');"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{dispatchUrl}}/api/dispatch/exceptions" }
+        }
+      ]
+    },
+    {
+      "name": "7. Reassignment when a courier goes offline (UC4/FR9)",
+      "description": "Courier B comes on shift, then courier A goes offline mid-delivery. Dispatch makes its one automated reassignment attempt: the same delivery moves to courier B in Tracking, Fleet transfers the load, and the customer is told.",
+      "item": [
+        {
+          "name": "7.1 Place an order (assigned to courier A)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Order created (201)', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('reassignOrderId', pm.response.json().id);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"customerId\":\"{{customerId}}\",\"pickupStreet\":\"Northfields Ave\",\"pickupSuburb\":\"Wollongong\",\"pickupState\":\"NSW\",\"pickupPostcode\":\"2522\",\"pickupLatitude\":-34.4054,\"pickupLongitude\":150.8784,\"dropoffStreet\":\"Crown St\",\"dropoffSuburb\":\"Wollongong\",\"dropoffState\":\"NSW\",\"dropoffPostcode\":\"2500\",\"dropoffLatitude\":-34.4248,\"dropoffLongitude\":150.8931,\"packageDetails\":\"Laptop\",\"serviceLevel\":\"STANDARD\",\"requestedDeliveryBy\":\"{{deadlineLater}}\"}" },
+            "url": "{{orderUrl}}/orders"
+          }
+        },
+        {
+          "name": "7.2 Delivery starts with courier A (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const deliveries = pm.response.json();",
+              "pm.test('Assigned to courier A', () =>",
+              "  pm.expect(deliveries[0].courierId).to.eql(pm.collectionVariables.get('courierA')));",
+              "pm.collectionVariables.set('reassignDeliveryId', deliveries[0].id);"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{trackingUrl}}/api/deliveries?orderId={{reassignOrderId}}" }
+        },
+        {
+          "name": "7.3 Register courier B",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Courier registered (201)', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('courierB', pm.response.json().courierId);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"vehicleType\":\"VAN\",\"capacity\":3,\"operatingZone\":\"ZONE_A\"}" },
+            "url": "{{fleetUrl}}/api/couriers"
+          }
+        },
+        {
+          "name": "7.4 Courier B goes on shift",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('On shift', () => pm.expect(pm.response.json().status).to.eql('AVAILABLE'));"
+            ] } }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"available\":true}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierB}}/availability"
+          }
+        },
+        {
+          "name": "7.5 Courier B reports location near courier A",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Location recorded', () => pm.response.to.have.status(200));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"latitude\":-34.4245,\"longitude\":150.8925}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierB}}/location"
+          }
+        },
+        {
+          "name": "7.6 Courier A goes offline mid-delivery (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "// Lets Dispatch see courier B on shift with a location before A goes offline.",
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Off shift', () => pm.expect(pm.response.json().status).to.eql('OFFLINE'));"
+            ] } }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"available\":false}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierA}}/availability"
+          }
+        },
+        {
+          "name": "7.7 Same delivery is now with courier B (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const deliveries = pm.response.json();",
+              "pm.test('Delivery identity kept, courier changed to B', () => {",
+              "  pm.expect(deliveries).to.have.lengthOf(1);",
+              "  pm.expect(deliveries[0].id).to.eql(pm.collectionVariables.get('reassignDeliveryId'));",
+              "  pm.expect(deliveries[0].courierId).to.eql(pm.collectionVariables.get('courierB'));",
+              "});"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{trackingUrl}}/api/deliveries?orderId={{reassignOrderId}}" }
+        },
+        {
+          "name": "7.8 Fleet moved the load to courier B (FR6)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Courier B carries one order', () => pm.expect(pm.response.json().activeOrderCount).to.eql(1));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{fleetUrl}}/api/couriers/{{courierB}}" }
+        },
+        {
+          "name": "7.9 Customer was told about the new courier (FR15) (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const reassignOrderId = pm.collectionVariables.get('reassignOrderId');",
+              "pm.test('Inbox has REASSIGNED', () => pm.expect(pm.response.json()",
+              "  .filter(m => m.orderId === reassignOrderId).map(m => m.kind)).to.include('REASSIGNED'));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{notificationUrl}}/notifications?customerId={{customerId}}" }
+        }
+      ]
+    },
+    {
+      "name": "8. Cancellation rules (FR3)",
+      "description": "Orders can only be cancelled before dispatch. A cancellation that wins the race against an in-flight assignment is still honoured: Dispatch cancels the assignment, Fleet releases the load and Tracking stops (or never starts) monitoring. Courier B is the courier on shift at this point.",
+      "item": [
+        {
+          "name": "8.1 Place an order",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Order created (201)', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('cancelOrderId', pm.response.json().id);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"customerId\":\"{{customerId}}\",\"pickupStreet\":\"Northfields Ave\",\"pickupSuburb\":\"Wollongong\",\"pickupState\":\"NSW\",\"pickupPostcode\":\"2522\",\"pickupLatitude\":-34.4054,\"pickupLongitude\":150.8784,\"dropoffStreet\":\"Crown St\",\"dropoffSuburb\":\"Wollongong\",\"dropoffState\":\"NSW\",\"dropoffPostcode\":\"2500\",\"dropoffLatitude\":-34.4248,\"dropoffLongitude\":150.8931,\"packageDetails\":\"Flowers\",\"serviceLevel\":\"STANDARD\",\"requestedDeliveryBy\":\"{{deadlineLater}}\"}" },
+            "url": "{{orderUrl}}/orders"
+          }
+        },
+        {
+          "name": "8.2 Cancelling an assigned order is refused (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('409: already dispatched', () => pm.response.to.have.status(409));"
+            ] } }
+          ],
+          "request": { "method": "POST", "url": "{{orderUrl}}/orders/{{cancelOrderId}}/cancel" }
+        },
+        {
+          "name": "8.3 Place another order",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Order created (201)', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('quickCancelOrderId', pm.response.json().id);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"customerId\":\"{{customerId}}\",\"pickupStreet\":\"Northfields Ave\",\"pickupSuburb\":\"Wollongong\",\"pickupState\":\"NSW\",\"pickupPostcode\":\"2522\",\"pickupLatitude\":-34.4054,\"pickupLongitude\":150.8784,\"dropoffStreet\":\"Crown St\",\"dropoffSuburb\":\"Wollongong\",\"dropoffState\":\"NSW\",\"dropoffPostcode\":\"2500\",\"dropoffLatitude\":-34.4248,\"dropoffLongitude\":150.8931,\"packageDetails\":\"Groceries\",\"serviceLevel\":\"STANDARD\",\"requestedDeliveryBy\":\"{{deadlineLater}}\"}" },
+            "url": "{{orderUrl}}/orders"
+          }
+        },
+        {
+          "name": "8.4 Cancel it straight away (races the assignment)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Either cancelled (200) or already dispatched (409)', () =>",
+              "  pm.expect(pm.response.code).to.be.oneOf([200, 409]));",
+              "console.log(pm.response.code === 200",
+              "  ? 'Cancelled before Order saw the assignment: Dispatch, Fleet and Tracking release it'",
+              "  : 'Dispatch assigned it first, so cancellation is refused');"
+            ] } }
+          ],
+          "request": { "method": "POST", "url": "{{orderUrl}}/orders/{{quickCancelOrderId}}/cancel" }
+        }
+      ]
+    },
+    {
+      "name": "9. Courier deactivation (FR4, FR5)",
+      "description": "Deactivating an on-shift courier also takes them off shift and tells Dispatch (CourierAvailabilityChanged). A deactivated courier cannot go back on shift.",
+      "item": [
+        {
+          "name": "9.1 Register courier C",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Courier registered (201)', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('courierC', pm.response.json().courierId);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"vehicleType\":\"BICYCLE\",\"capacity\":1,\"operatingZone\":\"ZONE_A\"}" },
+            "url": "{{fleetUrl}}/api/couriers"
+          }
+        },
+        {
+          "name": "9.2 Courier C goes on shift",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('On shift', () => pm.expect(pm.response.json().status).to.eql('AVAILABLE'));"
+            ] } }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"available\":true}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierC}}/availability"
+          }
+        },
+        {
+          "name": "9.3 Deactivate courier C",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const body = pm.response.json();",
+              "pm.test('Deactivated and taken off shift', () => {",
+              "  pm.expect(body.deactivated).to.eql(true);",
+              "  pm.expect(body.status).to.eql('OFFLINE');",
+              "});"
+            ] } }
+          ],
+          "request": { "method": "POST", "url": "{{fleetUrl}}/api/couriers/{{courierC}}/deactivate" }
+        },
+        {
+          "name": "9.4 Courier C cannot go back on shift",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('409: deactivated', () => pm.response.to.have.status(409));"
+            ] } }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"available\":true}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierC}}/availability"
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Assignment failure (UC3, FR15)",
+      "description": "An order whose pickup is outside every operating zone has no eligible courier. Dispatch records the failure and publishes AssignmentFailed; Order marks it FAILED and the customer is notified.",
+      "item": [
+        {
+          "name": "10.1 Place an order outside every zone (Melbourne)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Order created (201)', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('failedOrderId', pm.response.json().id);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"customerId\":\"{{customerId}}\",\"pickupStreet\":\"Swanston St\",\"pickupSuburb\":\"Melbourne\",\"pickupState\":\"VIC\",\"pickupPostcode\":\"3000\",\"pickupLatitude\":-37.8136,\"pickupLongitude\":144.9631,\"dropoffStreet\":\"Lygon St\",\"dropoffSuburb\":\"Carlton\",\"dropoffState\":\"VIC\",\"dropoffPostcode\":\"3053\",\"dropoffLatitude\":-37.7990,\"dropoffLongitude\":144.9670,\"packageDetails\":\"Parcel\",\"serviceLevel\":\"STANDARD\",\"requestedDeliveryBy\":\"{{deadlineLater}}\"}" },
+            "url": "{{orderUrl}}/orders"
+          }
+        },
+        {
+          "name": "10.2 Order is marked FAILED (FR2) (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status is FAILED', () => pm.expect(pm.response.json().status).to.eql('FAILED'));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{orderUrl}}/orders/{{failedOrderId}}" }
+        },
+        {
+          "name": "10.3 Customer is told assignment failed (FR15) (waits)",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "const failedOrderId = pm.collectionVariables.get('failedOrderId');",
+              "pm.test('Inbox has ASSIGNMENT_FAILED', () => pm.expect(pm.response.json()",
+              "  .filter(m => m.orderId === failedOrderId).map(m => m.kind)).to.include('ASSIGNMENT_FAILED'));"
+            ] } }
+          ],
+          "request": { "method": "GET", "url": "{{notificationUrl}}/notifications?customerId={{customerId}}" }
+        }
+      ]
+    },
+    {
+      "name": "11. Tidy up before the next run",
+      "description": "Takes this run's couriers off shift so a re-run assigns its orders to its own new courier A. Courier A is already off shift after folder 7, and courier C is deactivated. Taking courier B off shift starts the FR9 attempt for B's open deliveries; with no courier on shift they are held and later escalated, which is expected.",
+      "item": [
+        {
+          "name": "11.1 Courier B goes off shift",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Off shift', () => pm.expect(pm.response.json().status).to.eql('OFFLINE'));"
+            ] } }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"available\":false}" },
+            "url": "{{fleetUrl}}/api/couriers/{{courierB}}/availability"
+          }
+        }
+      ]
+    }
+  ]
+}
