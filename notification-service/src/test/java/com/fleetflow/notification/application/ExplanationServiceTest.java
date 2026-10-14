@@ -67,6 +67,21 @@ class ExplanationServiceTest {
         assertTrue(result.fallback()); assertTrue(result.answer().contains("Risk information is unavailable"));
         assertFalse(result.answer().contains("no risk flags"));
     }
+    @Test void fallbackDescribesStatusAndRiskInPlainWordsWithoutInternalCodes() {
+        doThrow(new IllegalStateException()).when(explainer).explain(anyString(), anyString(), any());
+        when(data.tracking(order)).thenReturn(new DeliveryData.Tracking(order, Instant.now(),
+                List.of("SLA_BREACH", "STATIONARY", "SOME_NEW_CODE"), Instant.now()));
+
+        var answer = service.explain(order, null, "Why is it late?").answer();
+
+        assertTrue(answer.contains("Your order is on its way."));
+        assertTrue(answer.contains("the delivery is predicted to arrive after the requested time"));
+        assertTrue(answer.contains("the courier has not moved for a while"));
+        assertTrue(answer.contains("there is a possible delay"));
+        for (var code : List.of("IN_TRANSIT", "SLA_BREACH", "STATIONARY", "SOME_NEW_CODE")) {
+            assertFalse(answer.contains(code), "fallback exposed " + code);
+        }
+    }
     @Test void uncheckedAnswerFallsBackAndUnknownOrderDoesNotCreateConversation() {
         doReturn("It will arrive in five minutes!").when(explainer).explain(anyString(), anyString(), any());
         assertTrue(service.explain(order, null, "When?").fallback());

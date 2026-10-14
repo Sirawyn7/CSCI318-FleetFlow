@@ -20,7 +20,8 @@ and reads Order and Tracking REST APIs using the contracts below.
   and two read-only, order-scoped REST tools. Conversation turns and fallback use are
   persisted. Only the last three turns go to the model; a conversation accepts 50
   turns, then the client starts a new one.
-- Missing Gemini credentials or invalid/failed model output gives a factual fallback.
+- Missing Gemini credentials or invalid/failed model output gives a factual fallback,
+  with order status and risk flags described in plain words rather than internal codes.
   Missing upstream data is explicitly unavailable, never interpreted as no risk.
 - Events deduplicate by envelope.eventId. The processed-event ledger, pending message
   and delivery/order correlation commit together. Duplicate concurrent inserts roll

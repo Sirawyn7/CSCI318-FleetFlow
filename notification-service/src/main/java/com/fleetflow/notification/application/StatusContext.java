@@ -38,15 +38,38 @@ public final class StatusContext {
     public boolean bothRead() { return orderRead && tracking != null; }
     public String fallback() {
         var o = order(); var t = tracking();
-        String status = o.available() ? "Order reports status: " + o.status() + "." : "Order status is currently unavailable.";
+        String status = o.available() ? "Your order " + describeStatus(o.status()) + "." : "Order status is currently unavailable.";
         String eta = t.available() && t.estimatedArrival() != null
                 ? " Latest recorded ETA: " + t.estimatedArrival() + "." : " A current ETA is unavailable.";
         String risk = !t.available() || t.riskFlags() == null ? " Risk information is unavailable."
                 : t.riskFlags().isEmpty() ? " Tracking reports no risk flags."
-                : " Reported risk flags: " + String.join(", ", t.riskFlags()) + ".";
+                : " Tracking currently reports that " + String.join("; ",
+                        t.riskFlags().stream().map(StatusContext::describeRisk).distinct().toList()) + ".";
         String freshness = t.updatedAt() == null ? "" : " Tracking last updated: " + t.updatedAt() + ".";
         return status + eta + risk + freshness + " The conversational explainer is temporarily unavailable; these are recorded facts, not a confirmed cause of delay.";
     }
+    // Upstream codes are internal vocabulary. Unrecognised values get generic wording, never echoed.
+    private static String describeStatus(String status) {
+        return switch (status == null ? "" : status) {
+            case "PLACED" -> "has been placed and is waiting for a courier";
+            case "ASSIGNED" -> "has a courier assigned";
+            case "IN_TRANSIT" -> "is on its way";
+            case "DELIVERED" -> "has been delivered";
+            case "FAILED" -> "could not be assigned a courier";
+            case "CANCELLED" -> "has been cancelled";
+            default -> "has a recorded status update";
+        };
+    }
+
+    private static String describeRisk(String flag) {
+        return switch (flag == null ? "" : flag) {
+            case "STATIONARY" -> "the courier has not moved for a while";
+            case "OFF_PACE" -> "the courier is moving more slowly than expected";
+            case "SLA_BREACH" -> "the delivery is predicted to arrive after the requested time";
+            default -> "there is a possible delay";
+        };
+    }
+
     public record OrderFacts(boolean available, String status, Instant requestedDeliveryBy) { }
     public record TrackingFacts(boolean available, Instant estimatedArrival, List<String> riskFlags, Instant updatedAt) { }
 }
