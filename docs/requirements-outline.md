@@ -187,7 +187,7 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | `OrderPlaced` | Order | Dispatch *(documented — `AGENTS.md` line 104)*, Tracking *(documented — FR11, delivery-destination bootstrap)* |
 | `OrderCancelled` | Order | Dispatch *(documented — backlog removal and held-assignment cancellation, FR3 review fix)*, Fleet *(documented — releases active load and retains a cancellation tombstone for late assignment events)*, Tracking *(documented — FR3: stops monitoring the delivery, or never starts it if cancellation arrives first)* |
 | `CourierRegistered` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11, vehicle/average-speed bootstrap)* |
-| `CourierAvailabilityChanged` | Fleet | Dispatch *(documented — §7; also the FR9 offline trigger)* |
+| `CourierAvailabilityChanged` | Fleet | Dispatch *(documented — §7; also the FR9 offline trigger; also published as unavailable when an on-shift courier is deactivated, FR4)* |
 | `CourierLocationUpdated` | Fleet | Dispatch *(documented — §7)*, Tracking *(documented — FR11–FR13)* |
 | `CourierLoadChanged` | Fleet | Dispatch *(documented — ADR 0009; UC3 now projects versioned load and acknowledges local reservations)* |
 | `OrderAssigned` | Dispatch | Tracking *(documented — delivery bootstrap)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)*, Order *(documented — FR2 status: ASSIGNED)* |

@@ -17,6 +17,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class CourierPersistenceTest {
     @org.springframework.test.context.bean.override.mockito.MockitoBean
     com.fleetflow.fleet.infrastructure.messaging.CourierLoadChangedEventPublisher publisher;
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    com.fleetflow.fleet.infrastructure.messaging.CourierAvailabilityChangedEventPublisher availability;
     @Autowired CourierJpaRepository couriers;
     @Autowired CourierOrderLoadRepository loads;
     @Autowired ProcessedEventRepository processed;
@@ -187,5 +189,35 @@ class CourierPersistenceTest {
         management.deactivate(id);
         assertTrue(management.get(id).isDeactivated());
         assertThrows(CourierNotFoundException.class, () -> management.get(UUID.randomUUID()));
+        // This courier was never on shift, so Dispatch's view needs no update.
+        org.mockito.Mockito.verifyNoInteractions(availability);
+    }
+
+    @Test void deactivatingAnOnShiftCourierTellsDispatchOnce() {
+        Courier onShift = Courier.register(VehicleType.VAN, 2, "A");
+        onShift.changeAvailability(true);
+        UUID id = couriers.save(onShift).getId();
+
+        management.deactivate(id);
+        management.deactivate(id);
+
+        assertEquals(CourierStatus.OFFLINE, management.get(id).getStatus());
+        var published = org.mockito.ArgumentCaptor.forClass(Courier.class);
+        org.mockito.Mockito.verify(availability, org.mockito.Mockito.times(1)).publish(published.capture());
+        assertEquals(CourierStatus.OFFLINE, published.getValue().getStatus());
+    }
+
+    @Test void failedAvailabilityPublicationRollsBackDeactivation() {
+        Courier onShift = Courier.register(VehicleType.VAN, 2, "A");
+        onShift.changeAvailability(true);
+        UUID id = couriers.save(onShift).getId();
+        org.mockito.Mockito.doThrow(new org.springframework.messaging.MessageDeliveryException("broker down"))
+                .when(availability).publish(org.mockito.ArgumentMatchers.any());
+
+        assertThrows(org.springframework.messaging.MessageDeliveryException.class, () -> management.deactivate(id));
+
+        var reloaded = management.get(id);
+        assertFalse(reloaded.isDeactivated());
+        assertEquals(CourierStatus.AVAILABLE, reloaded.getStatus());
     }
 }

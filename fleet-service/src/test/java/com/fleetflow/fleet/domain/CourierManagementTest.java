@@ -22,6 +22,22 @@ class CourierManagementTest {
         assertThrows(IllegalStateException.class, courier::assignOrder);
     }
 
+    @Test void deactivationEndsTheShiftAndBlocksGoingBackOnShift() {
+        Courier onShift = Courier.register(VehicleType.VAN, 2, "A");
+        onShift.changeAvailability(true);
+        assertTrue(onShift.deactivate());
+        assertEquals(CourierStatus.OFFLINE, onShift.getStatus());
+        assertFalse(onShift.deactivate());
+        assertThrows(IllegalStateException.class, () -> onShift.changeAvailability(true));
+        assertEquals(CourierStatus.OFFLINE, onShift.getStatus());
+        onShift.changeAvailability(false);
+        assertEquals(CourierStatus.OFFLINE, onShift.getStatus());
+
+        Courier offShift = Courier.register(VehicleType.VAN, 2, "A");
+        assertFalse(offShift.deactivate());
+        assertTrue(offShift.isDeactivated());
+    }
+
     @Test void profileUpdateValidatesBeforeMutation() {
         Courier courier = Courier.register(VehicleType.VAN, 2, "A");
         assertThrows(IllegalArgumentException.class, () -> courier.updateProfile(null, 2, "B"));

@@ -27,7 +27,9 @@ public class CourierAvailabilityService {
 
     @Transactional
     public Courier changeAvailability(ChangeCourierAvailabilityCommand command) {
-        Courier courier = courierRepository.findById(command.courierId()).orElseThrow(() -> new NoSuchElementException("courier not found" +  command.courierId()));
+        // Same row lock as deactivation, so the two can't interleave.
+        Courier courier = courierRepository.findForUpdate(command.courierId())
+                .orElseThrow(() -> new NoSuchElementException("courier not found: " + command.courierId()));
 
         courier.changeAvailability(command.available());
         courierRepository.save(courier);

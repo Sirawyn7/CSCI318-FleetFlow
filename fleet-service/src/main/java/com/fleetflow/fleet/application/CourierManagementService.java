@@ -2,6 +2,7 @@ package com.fleetflow.fleet.application;
 
 import com.fleetflow.fleet.domain.Courier;
 import com.fleetflow.fleet.domain.VehicleType;
+import com.fleetflow.fleet.infrastructure.messaging.CourierAvailabilityChangedEventPublisher;
 import com.fleetflow.fleet.infrastructure.persistence.CourierJpaRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,7 +14,11 @@ import java.util.UUID;
 @Transactional
 public class CourierManagementService {
     private final CourierJpaRepository couriers;
-    public CourierManagementService(CourierJpaRepository couriers) { this.couriers = couriers; }
+    private final CourierAvailabilityChangedEventPublisher availability;
+    public CourierManagementService(CourierJpaRepository couriers, CourierAvailabilityChangedEventPublisher availability) {
+        this.couriers = couriers;
+        this.availability = availability;
+    }
 
     @Transactional(readOnly = true)
     public List<Courier> list() { return couriers.findAll(); }
@@ -33,7 +38,11 @@ public class CourierManagementService {
 
     public Courier deactivate(UUID id) {
         Courier courier = locked(id);
-        courier.deactivate();
+        if (courier.deactivate()) {
+            // Publishing inside the transaction: a failed send rolls the deactivation back.
+            couriers.saveAndFlush(courier);
+            availability.publish(courier);
+        }
         return courier;
     }
 

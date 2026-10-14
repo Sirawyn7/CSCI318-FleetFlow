@@ -94,6 +94,9 @@ public class Courier {
     }
 
     public void changeAvailability(boolean available) {
+        if (available && deactivated) {
+            throw new IllegalStateException("A deactivated courier cannot go on shift");
+        }
         this.status = available ? CourierStatus.AVAILABLE : CourierStatus.OFFLINE;
     }
 
@@ -135,11 +138,20 @@ public class Courier {
         this.operatingZone = operatingZone;
     }
 
-    public void deactivate() {
+    /**
+     * Deactivation also ends the courier's shift. The catalogue has no deactivation event,
+     * so going off shift is how Dispatch learns the courier is no longer assignable.
+     *
+     * @return whether this took the courier off shift
+     */
+    public boolean deactivate() {
         if (activeOrderCount > 0) {
             throw new IllegalStateException("A courier with active orders cannot be deactivated");
         }
         deactivated = true;
+        if (status != CourierStatus.AVAILABLE) return false;
+        status = CourierStatus.OFFLINE;
+        return true;
     }
 
     public void assignOrder() {
