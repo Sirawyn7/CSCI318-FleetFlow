@@ -78,22 +78,24 @@ This table lists publishers only. **Before assuming a service consumes an event,
 | Service | Tables |
 |---|---|
 | Order | `orders`, `order_items`, `order_status_history` |
-| Fleet | `couriers`, `vehicles`, `availability_windows`, `courier_locations` |
-| Dispatch | `assignments`, `assignment_decisions`, `courier_availability_view` (derived) |
-| Tracking | `deliveries`, `delivery_track_points` (derived), `eta_snapshots`, `delivery_events` |
-| Notification | `notifications`, `notification_templates`, `agent_conversations` |
+| Fleet | `couriers`, `courier_order_load` |
+| Dispatch | `assignments`, `assignment_decisions`, `courier_availability_view` (derived), `open_orders_view` (derived), `order_cancellation_state` |
+| Tracking | `deliveries`, `order_destination_view` (derived), `courier_vehicle_type_view` (derived), `delivery_eta_view` (derived), `delivery_risk_flags` (derived), `order_cancellation_state` |
+| Notification | `notifications`, `notification_templates`, `agent_conversations`, `agent_conversation_turns`, `delivery_order_links` (derived) |
 
-Distinguish **source-of-truth** data (Fleet's `courier_locations`) from **derived read models** (Dispatch's view, Tracking's track points). This distinction is explicitly assessed.
+Every consuming service except Order also has a `processed_events` idempotency ledger; see `requirements-outline.md` §8 for details.
+
+Distinguish **source-of-truth** data (Fleet's `couriers`, including each courier's latest location; Tracking's `deliveries`) from **derived read models** (Dispatch's and Tracking's views). This distinction is explicitly assessed.
 
 ## DDD patterns — these are graded, be explicit
 
 The report must justify why each domain class belongs to a specific pattern. Write code that makes the classification obvious:
 
 - **Entities** (identity persists through change): `Order`, `Courier`, `Delivery`, `Assignment`
-- **Value Objects** (immutable, defined by attributes): `Address`, `GeoCoordinate`, `TimeWindow`, `PackageDimensions`, `Money` — make these genuinely immutable (final fields, no setters, value-based equals/hashCode). Java records are a good fit.
-- **Aggregates**: `Order` (root) + items + delivery window; `Courier` (root) + vehicle + availability; `Delivery` (root) + track points. Enforce invariants at the root; do not let external code mutate children directly.
+- **Value Objects** (immutable, defined by attributes): `Address`, `OrderItem`, `OrderStatusChange`, `GeoCoordinate` (one per service), `CourierCandidate`, `RiskObservation`, `RiskPolicy` — make these genuinely immutable (final fields, no setters, value-based equals/hashCode). Java records are a good fit.
+- **Aggregates**: `Order` (root) + addresses, items and status history; `Courier` (root) + vehicle type, shift status, load and location; `Delivery` (root) + destination, lifecycle and completion proof; `Assignment` (root) + reassignment guard. Enforce invariants at the root; do not let external code mutate children directly.
 - **Domain Events**: see catalogue above
-- **Domain Services** (logic spanning multiple aggregates): `DispatchAssignmentService`, `EtaCalculationService`, `GeofenceEvaluationService`
+- **Domain Services** (logic spanning multiple aggregates): `DispatchAssignmentService`, `EtaCalculationService`, `GeofenceEvaluationService`, `RiskEvaluationService`
 
 **When you make a non-obvious DDD decision, leave a short comment explaining the reasoning.** These comments feed directly into the report.
 
