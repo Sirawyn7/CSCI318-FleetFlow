@@ -19,8 +19,10 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+// No consumer bindings without a broker; tests invoke the lifecycle consumer beans directly.
 @SpringBootTest(properties = {"spring.datasource.url=jdbc:h2:mem:order-test;DB_CLOSE_DELAY=-1",
-        "spring.jpa.hibernate.ddl-auto=create-drop", "spring.jpa.open-in-view=false"})
+        "spring.jpa.hibernate.ddl-auto=create-drop", "spring.jpa.open-in-view=false",
+        "spring.cloud.function.definition="})
 @AutoConfigureMockMvc
 class OrderSliceTest {
     @Autowired OrderApplicationService service;
@@ -176,5 +178,67 @@ class OrderSliceTest {
             .andExpect(status().isBadRequest());
         verify(events, times(1)).publishOrderPlaced(any());
         assertEquals(1, repository.count());
+    }
+
+    @Autowired com.fleetflow.order.infrastructure.OrderLifecycleConsumers lifecycle;
+
+    private static com.fleetflow.contracts.EventEnvelope envelope(String type, Instant at) {
+        return new com.fleetflow.contracts.EventEnvelope(UUID.randomUUID(), type, at, "test");
+    }
+
+    @Test void lifecycleEventsAdvanceStatusAndHistoryWithEventTimes() throws Exception {
+        var order = create();
+        var t = Instant.parse("2026-10-14T01:00:00Z");
+        var assigned = new com.fleetflow.contracts.dispatch.OrderAssigned(envelope("OrderAssigned", t),
+                order.getId(), UUID.randomUUID(), UUID.randomUUID());
+        lifecycle.orderAssignedConsumer().accept(assigned);
+        lifecycle.orderAssignedConsumer().accept(assigned);
+        lifecycle.deliveryStartedConsumer().accept(new com.fleetflow.contracts.tracking.DeliveryStarted(
+                envelope("DeliveryStarted", t.plusSeconds(60)), UUID.randomUUID(), order.getId(), UUID.randomUUID()));
+        lifecycle.deliveryCompletedConsumer().accept(new com.fleetflow.contracts.tracking.DeliveryCompleted(
+                envelope("DeliveryCompleted", t.plusSeconds(600)), UUID.randomUUID(), order.getId(),
+                UUID.randomUUID(), t.plusSeconds(600)));
+        mvc.perform(get("/orders/{id}", order.getId())).andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("DELIVERED"))
+            .andExpect(jsonPath("$.statusHistory.length()").value(4))
+            .andExpect(jsonPath("$.statusHistory[1].status").value("ASSIGNED"))
+            .andExpect(jsonPath("$.statusHistory[1].changedAt").value("2026-10-14T01:00:00Z"))
+            .andExpect(jsonPath("$.statusHistory[2].status").value("IN_TRANSIT"))
+            .andExpect(jsonPath("$.statusHistory[3].status").value("DELIVERED"));
+        verify(events, never()).publishOrderCancelled(any());
+    }
+
+    @Test void assignedOrdersCanNoLongerBeCancelled() throws Exception {
+        var order = create();
+        lifecycle.orderAssignedConsumer().accept(new com.fleetflow.contracts.dispatch.OrderAssigned(
+                envelope("OrderAssigned", Instant.now()), order.getId(), UUID.randomUUID(), UUID.randomUUID()));
+        mvc.perform(post("/orders/{id}/cancel", order.getId())).andExpect(status().isConflict());
+        assertEquals(OrderStatus.ASSIGNED, service.getOrder(order.getId()).orElseThrow().getStatus());
+        verify(events, never()).publishOrderCancelled(any());
+    }
+
+    @Test void assignmentFailureMarksOrderFailed() {
+        var order = create();
+        lifecycle.assignmentFailedConsumer().accept(new com.fleetflow.contracts.dispatch.AssignmentFailed(
+                envelope("AssignmentFailed", Instant.now()), order.getId(), "No eligible courier"));
+        var loaded = service.getOrder(order.getId()).orElseThrow();
+        assertEquals(OrderStatus.FAILED, loaded.getStatus());
+        assertEquals(OrderStatus.FAILED, loaded.getStatusHistory().getLast().status());
+    }
+
+    @Test void cancellationBeforeALateAssignmentStaysCancelled() {
+        var order = create();
+        service.cancelOrder(order.getId());
+        lifecycle.orderAssignedConsumer().accept(new com.fleetflow.contracts.dispatch.OrderAssigned(
+                envelope("OrderAssigned", Instant.now()), order.getId(), UUID.randomUUID(), UUID.randomUUID()));
+        var loaded = service.getOrder(order.getId()).orElseThrow();
+        assertEquals(OrderStatus.CANCELLED, loaded.getStatus());
+        assertEquals(2, loaded.getStatusHistory().size());
+    }
+
+    @Test void eventForAnUnknownOrderIsRejectedForRetry() {
+        var event = new com.fleetflow.contracts.dispatch.OrderAssigned(
+                envelope("OrderAssigned", Instant.now()), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        assertThrows(IllegalStateException.class, () -> lifecycle.orderAssignedConsumer().accept(event));
     }
 }

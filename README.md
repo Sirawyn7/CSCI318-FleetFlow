@@ -91,14 +91,23 @@ Order runs on port 8081.
 Missing orders return 404, invalid input returns 400, and cancellation outside
 `PLACED` returns 409. A repeated cancellation does not publish another event.
 
-Order does not yet consume Dispatch or Tracking events, so an order's status stays
-`PLACED` (or `CANCELLED`) for its whole life, and its history records only those
-transitions. As a result an order can still be cancelled after a courier is
-assigned. Cancellation now marks the Dispatch assignment cancelled, releases its
-pending reservation, and releases Fleet's active load through independent
-`OrderCancelled` consumers. Duplicate and late assignment events cannot restore
-cancelled Fleet load. Tracking cancellation and Order lifecycle status updates
-remain outstanding; the delivery being tracked is not stopped by this change.
+Order consumes lifecycle events in consumer group `order-service` and records each
+transition in the status history, timestamped with the source event's time:
+
+| Event | Status |
+|---|---|
+| `OrderAssigned` | `ASSIGNED` |
+| `DeliveryStarted` | `IN_TRANSIT` |
+| `DeliveryCompleted` | `DELIVERED` |
+| `AssignmentFailed` | `FAILED` (only from `PLACED`) |
+
+Status only moves forward, so duplicate or late events change nothing, and
+`DELIVERED`, `FAILED` and `CANCELLED` are final. Once an order is `ASSIGNED`,
+cancellation returns 409. A cancellation accepted while the assignment is still in
+flight keeps the order `CANCELLED`; Dispatch then cancels the assignment and Fleet
+releases the courier's load. Tracking does not yet consume `OrderCancelled`, so a
+delivery started for an order cancelled in that window is still monitored.
+Rejected lifecycle events retry, then go to `error.<source-topic>.order-service`.
 
 Items are modeled as a description (1–255 characters) and a positive quantity, e.g.
 `"items":[{"description":"Book","quantity":2}]` in the creation body. If omitted,

@@ -59,4 +59,38 @@ class OrderKafkaIntegrationTest {
             assertEquals(2, service.getOrder(order.getId()).orElseThrow().getStatusHistory().size());
         }
     }
+
+    @Autowired org.springframework.cloud.stream.function.StreamBridge bridge;
+
+    @Test void consumesLifecycleEventsFromDispatchAndTrackingTopics() throws Exception {
+        var address = new Address("1 Main St", "Wollongong", "NSW", "2500", -34.4, 150.8);
+        var delivered = service.createOrder(UUID.randomUUID(), address, address, "Books", "STANDARD", Instant.now().plusSeconds(3600));
+        var failed = service.createOrder(UUID.randomUUID(), address, address, "Books", "STANDARD", Instant.now().plusSeconds(3600));
+        assertTrue(bridge.send(Topics.ORDER_ASSIGNED, new com.fleetflow.contracts.dispatch.OrderAssigned(
+                envelope("OrderAssigned"), delivered.getId(), UUID.randomUUID(), UUID.randomUUID())));
+        awaitStatus(delivered.getId(), com.fleetflow.order.domain.OrderStatus.ASSIGNED);
+        assertTrue(bridge.send(Topics.DELIVERY_STARTED, new com.fleetflow.contracts.tracking.DeliveryStarted(
+                envelope("DeliveryStarted"), UUID.randomUUID(), delivered.getId(), UUID.randomUUID())));
+        awaitStatus(delivered.getId(), com.fleetflow.order.domain.OrderStatus.IN_TRANSIT);
+        assertTrue(bridge.send(Topics.DELIVERY_COMPLETED, new com.fleetflow.contracts.tracking.DeliveryCompleted(
+                envelope("DeliveryCompleted"), UUID.randomUUID(), delivered.getId(), UUID.randomUUID(), Instant.now())));
+        awaitStatus(delivered.getId(), com.fleetflow.order.domain.OrderStatus.DELIVERED);
+        assertTrue(bridge.send(Topics.ASSIGNMENT_FAILED, new com.fleetflow.contracts.dispatch.AssignmentFailed(
+                envelope("AssignmentFailed"), failed.getId(), "No eligible courier")));
+        awaitStatus(failed.getId(), com.fleetflow.order.domain.OrderStatus.FAILED);
+        assertEquals(4, service.getOrder(delivered.getId()).orElseThrow().getStatusHistory().size());
+    }
+
+    private static com.fleetflow.contracts.EventEnvelope envelope(String type) {
+        return new com.fleetflow.contracts.EventEnvelope(UUID.randomUUID(), type, Instant.now(), "integration-test");
+    }
+
+    private void awaitStatus(UUID orderId, com.fleetflow.order.domain.OrderStatus expected) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(45).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (service.getOrder(orderId).orElseThrow().getStatus() == expected) return;
+            Thread.sleep(200);
+        }
+        fail("Order " + orderId + " did not reach " + expected);
+    }
 }
