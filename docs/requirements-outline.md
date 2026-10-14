@@ -230,15 +230,19 @@ Database-per-service. No shared tables. Cross-context references held as IDs onl
 
 | Service | Owns |
 |---|---|
-| **Order** | `orders`, `order_items`, `order_status_history`, `processed_events`¹ |
-| **Fleet** | `couriers`, `vehicles`, `availability_windows`, `courier_locations` (current position), `courier_order_load` (FR6 event-order ledger), `processed_events`¹ |
-| **Dispatch** | `assignments`, `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model), `open_orders_view` (derived read model, ADR 0001), `order_cancellation_state` (serializes placement/cancellation and retains tombstones), `processed_events`¹ |
-| **Tracking** | `deliveries`, `delivery_track_points` (delivery-scoped, derived from stream), `eta_snapshots`, `delivery_events`, `processed_events`¹ |
-| **Notification** | `notifications`, `notification_templates`, `agent_conversations`, `processed_events`¹ |
+| **Order** | `orders`, `order_items`, `order_status_history` (no ledger²) |
+| **Fleet** | `couriers` (profile, shift status, deactivation, active-order count and latest location), `courier_order_load` (FR6 event-order ledger, incl. cancellation tombstones), `processed_events`¹ |
+| **Dispatch** | `assignments` (incl. FR9 reassignment guard), `assignment_decisions` (incl. agent rationale and path used), `courier_availability_view` (derived read model), `open_orders_view` (derived read model, ADR 0001), `order_cancellation_state` (serializes placement/cancellation and retains tombstones), `processed_events`¹ |
+| **Tracking** | `deliveries` (lifecycle and FR14 proof), `order_destination_view` (derived, from `OrderPlaced`), `courier_vehicle_type_view` (derived, from `CourierRegistered`), `delivery_eta_view` (derived, from its own `DeliveryEtaUpdated`, ADR 0016), `delivery_risk_flags` (derived, from its own `DeliveryAtRisk`, FR16), `order_cancellation_state` (serializes delivery bootstrap/cancellation, FR3), `processed_events`¹ |
+| **Notification** | `notifications`, `notification_templates`, `agent_conversations`, `agent_conversation_turns`, `delivery_order_links` (derived delivery-to-order correlation), `processed_events`¹ |
 
-¹ `processed_events` — the idempotency ledger, keyed on `EventEnvelope.eventId()` (see `fleetflow-contracts`). An **infrastructure concern, not a domain entity** — it belongs in `infrastructure/`, never `domain/`, and does not appear in the DDD pattern classification in §9.3. Added here because §8 is a report deliverable compared against the real schema, and a table present in five databases but absent from this table reads as an omission. Every service in this row is a genuine event consumer per the §6.1 matrix, so every service needs one — confirm the exact consuming event set per service as its slice is built, per §6.1.
+¹ `processed_events` — the idempotency ledger, keyed on `EventEnvelope.eventId()` (see `fleetflow-contracts`). An **infrastructure concern, not a domain entity** — it belongs in `infrastructure/`, never `domain/`, and does not appear in the DDD pattern classification in §9.3. Listed here because §8 is a report deliverable compared against the real schema.
 
-Note the deliberate distinction between **owned source-of-truth data** (Fleet's `courier_locations`) and **derived read models** (Dispatch's `courier_availability_view`, Tracking's `delivery_track_points`) — worth calling out explicitly in the report as evidence of correct bounded-context isolation.
+² Order's lifecycle consumers (FR2) are idempotent without a ledger: the status only moves forward, so a duplicate or late event changes nothing.
+
+Tracking's per-ping streaming state (ETA, geofence and risk) lives in Kafka Streams state stores, not in its H2 database.
+
+Note the deliberate distinction between **owned source-of-truth data** (Fleet's `couriers`, including each courier's latest location; Tracking's `deliveries`) and **derived read models** (Dispatch's `courier_availability_view` and `open_orders_view`; Tracking's `*_view` tables and `delivery_risk_flags`) — worth calling out explicitly in the report as evidence of correct bounded-context isolation.
 
 ---
 
@@ -265,10 +269,10 @@ One package tree and one explanation covers all five services; note per-service 
 | Pattern | Examples |
 |---|---|
 | **Entity** | `Order`, `Courier`, `Delivery`, `Assignment` — identity persists through state change |
-| **Value Object** | `Address`, `GeoCoordinate`, `TimeWindow`, `PackageDimensions`, `Money` — immutable, defined by attributes |
-| **Aggregate** | `Order` (root) + order items + delivery window; `Courier` (root) + vehicle + availability; `Delivery` (root) + track points |
-| **Domain Event** | See §6 catalogue |
-| **Domain Service** | `DispatchAssignmentService`, `EtaCalculationService`, `GeofenceEvaluationService` |
+| **Value Object** | Order: `Address`, `OrderItem`, `OrderStatusChange`; Fleet, Dispatch and Tracking: each its own `GeoCoordinate` (ADR 0004); Dispatch: `CourierCandidate`; Tracking: `RiskObservation`, `RiskPolicy` — immutable records, defined by attributes. Enums (`OrderStatus`, `CourierStatus`, `VehicleType`, `VehicleAverageSpeed`, `NotificationKind`) are the fixed domain vocabulary |
+| **Aggregate** | `Order` (root) + pickup/drop-off `Address` + `OrderItem`s + `OrderStatusChange` history; `Courier` (root) + vehicle type, shift status, capacity/load and current `GeoCoordinate`; `Delivery` (root) + destination `GeoCoordinate`, lifecycle timestamps and completion proof; `Assignment` (root) + FR9 reassignment guard state |
+| **Domain Event** | See §6 catalogue — records in `fleetflow-contracts`, a Published Language (ADR 0004) |
+| **Domain Service** | `DispatchAssignmentService`, `EtaCalculationService`, `GeofenceEvaluationService`, `RiskEvaluationService` |
 
 **Write these justifications during implementation, not in Week 9.** Each needs a DDD-principle rationale plus a code snippet.
 
