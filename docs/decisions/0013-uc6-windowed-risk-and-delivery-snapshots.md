@@ -100,3 +100,7 @@ Vehicle speeds are configured under `tracking.eta.speed-kmh` (bicycle 15, motorc
 The API layer has no monitoring endpoint or persisted ETA/risk history yet. Stream-table joins do not recover pings received before snapshot materialization. Samples at or before the latest processed timestamp are ignored; future-dated GPS validation remains Fleet’s ingestion responsibility. Separate near/arrival topics do not guarantee observation order.
 
 The earlier broker run encountered Windows RocksDB path-length limits: integration tests use short state paths and named KTable stores. Tests use isolated databases and never clear the user’s H2 database.
+
+## Alert cooldown follow-up — 2026-10-14
+
+The alert cooldown is now 10 minutes per delivery, courier and reason, rather than per delivery and reason. With FR9 reassignment and FR16's risk flags (which exclude alerts raised for a previous courier), a delivery-wide cooldown hid a risk that persisted after reassignment for up to 10 minutes. Now the new courier is evaluated afresh: a persisting risk is re-raised, the customer is warned again, and FR9 escalates it, since the delivery's single automated attempt is already used. Cooldown entries stored under the old key are no longer read, so an active delivery can raise one extra alert after an upgrade.
