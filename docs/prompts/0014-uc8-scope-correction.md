@@ -8,7 +8,7 @@
 
 Implement UC8 within Notification using an in-app inbox and a conversational status
 explainer. Use existing event contracts and configurable Order/Tracking REST clients.
-Connect the other branches later. This decision is recorded in accepted ADR 0013.
+Connect the other branches later. This decision is recorded in accepted ADR 0015.
 
 ## Prompt (verbatim)
 
