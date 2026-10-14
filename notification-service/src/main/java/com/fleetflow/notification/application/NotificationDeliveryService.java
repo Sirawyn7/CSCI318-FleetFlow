@@ -30,7 +30,7 @@ public class NotificationDeliveryService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void deliver(UUID id) {
         var n = notifications.findById(id).orElseThrow();
-        if (n.getSentAt() != null) return;
+        if (n.getSentAt() != null || n.getSuppressedAt() != null) return;
         UUID orderId = n.getOrderId();
         if (orderId == null) orderId = links.findById(n.getDeliveryId()).map(DeliveryOrderLink::getOrderId).orElse(null);
         // Cross-topic order is not guaranteed: keep the durable pending message until its link arrives.
@@ -39,12 +39,19 @@ public class NotificationDeliveryService {
         if (order == null || !orderId.equals(order.id()) || order.customerId() == null)
             throw new DeliveryDataPort.Unavailable("Order");
         UUID finalOrderId = orderId;
+        // FR3: a delivery event can still arrive after cancellation, before Tracking stops
+        // monitoring. Order is the source of truth, so a cancelled order's messages are never sent.
+        if ("CANCELLED".equals(order.status())) {
+            writeTransaction.executeWithoutResult(status ->
+                    notifications.lockById(id).orElseThrow().suppress(finalOrderId, java.time.Instant.now()));
+            return;
+        }
         for (int attempt = 0; attempt < 2; attempt++) {
             try {
                 writeTransaction.executeWithoutResult(status -> {
                     var current = notifications.lockById(id).orElseThrow();
                     if (current.getSentAt() != null) return;
-                    var template = templates.findById(current.getKind())
+                    var template = templates.findById(current.getKind().name())
                             .orElseGet(() -> templates.saveAndFlush(new NotificationTemplate(current.getKind())));
                     current.deliver(finalOrderId, order.customerId(),
                             template.render(finalOrderId, current.getReason()));

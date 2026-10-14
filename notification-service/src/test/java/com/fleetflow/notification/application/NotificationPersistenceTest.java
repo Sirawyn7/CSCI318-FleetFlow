@@ -34,7 +34,7 @@ class NotificationPersistenceTest {
     @MockitoBean DeliveryDataPort data;
     @MockitoBean NotificationAuditPort audit;
     private final UUID order = UUID.randomUUID(), customer = UUID.randomUUID(), deliveryId = UUID.randomUUID();
-    @Test void legacyPersistedAssignmentTemplatesCannotExposeDiagnostics() {
+    @Test void templatesThatIncludeTheReasonNeverExposeInternalCodes() {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             for (var kind : List.of(NotificationKind.REASSIGNED, NotificationKind.ASSIGNMENT_FAILED)) {
                 var template = new NotificationTemplate(kind);
@@ -43,7 +43,39 @@ class NotificationPersistenceTest {
                 templates.saveAndFlush(template);
             }
         });
-        assignmentOutcomeConsumersHideDiagnosticsWithoutADeliveryLink();
+        consumers.notifyReassigned().accept(new com.fleetflow.contracts.dispatch.OrderReassigned(
+                new com.fleetflow.contracts.EventEnvelope(UUID.randomUUID(), "OrderReassigned", Instant.now(), "test"),
+                order, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "COURIER_OFFLINE"));
+        consumers.notifyAssignmentFailed().accept(new com.fleetflow.contracts.dispatch.AssignmentFailed(
+                new com.fleetflow.contracts.EventEnvelope(UUID.randomUUID(), "AssignmentFailed", Instant.now(), "test"),
+                order, "Agent timed out; no available courier with known location"));
+        service.receive(UUID.randomUUID(), Instant.now(), "test", order, deliveryId, NotificationKind.AT_RISK, "SLA_BREACH");
+        notifications.findAll().forEach(n -> delivery.deliver(n.getId()));
+
+        var messages = service.inbox(customer, 0, 20).stream().map(NotificationService.InboxMessage::message).toList();
+        assertEquals(3, messages.size());
+        assertTrue(messages.contains("Order " + order + ". Reason: the original courier became unavailable"));
+        assertTrue(messages.contains("Order " + order + ". Reason: there is a possible delay"));
+        assertTrue(messages.contains("Order " + order + " may be delayed: the delivery is predicted to arrive after the requested time."));
+        for (var leaked : List.of("COURIER_OFFLINE", "Agent timed out", "SLA_BREACH")) {
+            assertTrue(messages.stream().noneMatch(m -> m.contains(leaked)), "message exposed " + leaked);
+        }
+    }
+    @Test void cancelledOrdersMessagesAreSuppressedNotSent() {
+        receive(UUID.randomUUID(), order, deliveryId, NotificationKind.NEAR_DESTINATION);
+        UUID id = notifications.findAll().getFirst().getId();
+        doReturn(new DeliveryData.Order(order, customer, "CANCELLED", null)).when(data).order(order);
+
+        delivery.deliver(id);
+        delivery.deliver(id);
+
+        var record = notifications.findById(id).orElseThrow();
+        assertNull(record.getSentAt());
+        assertNotNull(record.getSuppressedAt());
+        assertTrue(service.inbox(customer, 0, 20).isEmpty());
+        assertTrue(notifications.findNextPending(null, null, PageRequest.of(0, 25)).isEmpty(), "worker would retry it");
+        delivery.publishAudit(id);
+        verify(audit, never()).publish(any());
     }
     @Test void assignmentOutcomeConsumersHideDiagnosticsWithoutADeliveryLink() {
         var reassigned = new com.fleetflow.contracts.dispatch.OrderReassigned(
@@ -162,7 +194,7 @@ class NotificationPersistenceTest {
         } finally {
             executor.shutdownNow();
         }
-        assertTrue(templates.findById(NotificationKind.ASSIGNED).isPresent());
+        assertTrue(templates.findById(NotificationKind.ASSIGNED.name()).isPresent());
         assertTrue(ids.stream().map(id -> notifications.findById(id).orElseThrow())
                 .allMatch(n -> n.getSentAt() != null));
     }

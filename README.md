@@ -336,7 +336,9 @@ Tracking bootstraps deliveries from `OrderPlaced`, `CourierRegistered` and
 arrived, completed or been cancelled. On `OrderCancelled`, Tracking marks the delivery
 cancelled and republishes the courier's snapshot, which stops ETA, geofence and risk
 processing for it once the topologies' tables catch up. A cancellation that arrives
-before `OrderAssigned` is remembered, so that delivery is never started.
+before `OrderAssigned` is remembered, so that delivery is never started. An event
+emitted before the tables catch up still never reaches the customer: Notification
+checks the order's status before sending and suppresses messages for cancelled orders.
 Missing prerequisites cause retries, then the configured DLQ; replay failed assignments
 once their prerequisites exist. GPS arriving before the snapshot is materialized does
 not join; the next ping updates tracking.

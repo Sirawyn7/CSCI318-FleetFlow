@@ -10,11 +10,17 @@ and reads Order and Tracking REST APIs using the contracts below.
   `AssignmentFailed`, renders persisted templates,
   delivers to a durable **IN_APP inbox**, and publishes the existing NotificationSent
   audit event. No email/SMS provider is required or claimed.
-- Reassignment and assignment-failure messages omit internal diagnostic reasons and use
-  the same recipient lookup, deduplication, inbox and audit pipeline. Raw reasons remain
-  in the internal notification record. Legacy persisted assignment templates also use
-  the safe customer wording.
-- Notification kinds and template codes use `VARCHAR(64)`. Hibernate schema update
+- Reassignment and assignment-failure messages use the same recipient lookup,
+  deduplication, inbox and audit pipeline. Raw reasons stay in the internal notification
+  record; wherever a template includes `{reason}` (such as at-risk alerts), known codes
+  are replaced with plain wording and anything else with generic wording, so internal
+  codes and diagnostics never reach the customer.
+- Before sending, the worker checks the order with Order. If it has been cancelled, the
+  message is marked suppressed rather than sent: it never appears in the inbox, is not
+  retried and publishes no audit event. This covers a Tracking event that arrives just
+  after cancellation, before Tracking has stopped monitoring.
+- Notification kinds and template codes are plain `VARCHAR(64)` columns with no CHECK
+  constraint, so a new kind doesn't need a schema migration. Hibernate schema update
   converts the earlier native H2 enum columns, preserving existing rows.
 - FR16 provides conversational questions and follow-ups using LangChain4j AiServices
   and two read-only, order-scoped REST tools. Conversation turns and fallback use are

@@ -8,7 +8,7 @@ public enum NotificationKind {
     IN_TRANSIT("Order {orderId} is in transit."),
     NEAR_DESTINATION("Your courier is near the destination for order {orderId}."),
     DELIVERED("Order {orderId} has been delivered."),
-    AT_RISK("Order {orderId} may be delayed. Reported reason: {reason}");
+    AT_RISK("Order {orderId} may be delayed: {reason}.");
 
     private final String defaultText;
     NotificationKind(String defaultText) { this.defaultText = defaultText; }

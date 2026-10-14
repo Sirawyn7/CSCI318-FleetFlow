@@ -42,13 +42,13 @@ class NotificationSchemaUpgradeTest {
                     .setProperty("hibernate.hbm2ddl.auto", "update");
             try (var factory = configuration.buildSessionFactory(); var session = factory.openSession()) {
                 assertEquals(NotificationKind.ASSIGNED, session.find(NotificationRecord.class, oldId).getKind());
-                assertNotNull(session.find(NotificationTemplate.class, NotificationKind.ASSIGNED));
+                assertNotNull(session.find(NotificationTemplate.class, NotificationKind.ASSIGNED.name()));
                 var transaction = session.beginTransaction();
                 for (var kind : new NotificationKind[]{NotificationKind.REASSIGNED, NotificationKind.ASSIGNMENT_FAILED}) {
                     session.persist(new NotificationRecord(UUID.randomUUID(), UUID.randomUUID(), null,
                             kind, "Internal diagnostic", Instant.now(), "upgrade"));
                     if (restart == 0) session.persist(new NotificationTemplate(kind));
-                    else assertNotNull(session.find(NotificationTemplate.class, kind));
+                    else assertNotNull(session.find(NotificationTemplate.class, kind.name()));
                 }
                 transaction.commit();
             }
@@ -60,6 +60,26 @@ class NotificationSchemaUpgradeTest {
             int count = 0;
             while (columns.next()) { assertEquals("CHARACTER VARYING", columns.getString(1)); count++; }
             assertEquals(2, count);
+        }
+    }
+
+    /** A CHECK constraint listing today's kinds would make adding a kind a schema migration. */
+    @Test void freshSchemaAcceptsNotificationKindsAddedLater() throws Exception {
+        String url = "jdbc:h2:file:" + directory.resolve("fresh").toAbsolutePath().toString().replace('\\', '/');
+        var configuration = new Configuration()
+                .addAnnotatedClass(NotificationRecord.class).addAnnotatedClass(NotificationTemplate.class)
+                .setProperty("hibernate.connection.url", url)
+                .setProperty("hibernate.connection.username", "sa")
+                .setProperty("hibernate.connection.password", "")
+                .setProperty("hibernate.physical_naming_strategy", "org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy")
+                .setProperty("hibernate.hbm2ddl.auto", "update");
+        try (var factory = configuration.buildSessionFactory()) {
+            assertNotNull(factory);
+        }
+        try (var connection = DriverManager.getConnection(url, "sa", ""); var sql = connection.createStatement()) {
+            sql.execute("INSERT INTO notification_templates (code, body) VALUES ('FUTURE_KIND', 'x')");
+            sql.execute("INSERT INTO notifications (id, kind, source_event_id, audit_published, version) VALUES ('"
+                    + UUID.randomUUID() + "', 'FUTURE_KIND', '" + UUID.randomUUID() + "', false, 0)");
         }
     }
 }
