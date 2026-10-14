@@ -78,6 +78,29 @@ docker run -p 9092:9092 apache/kafka:latest
 (Confirm the current tag on Docker Hub — pin an exact version rather than `latest` for
 anything beyond a one-off local demo.)
 
+## Demo (Postman)
+
+[`demo/fleetflow-demo.postman_collection.json`](demo/fleetflow-demo.postman_collection.json)
+walks through every use case against the running system. Start Kafka and all five
+services, import the collection into Postman, then run the folders in order, either one
+request at a time or with the Collection Runner. Each request's tests show what the
+step demonstrates.
+
+| Folder | Shows |
+|---|---|
+| 1–5 | Courier setup, order placement and assignment, live ETA and geofencing, customer inbox and explainer, proof of delivery |
+| 6 | An SLA risk raised on the first ping, the single reassignment attempt finding no replacement, and escalation to the operator queue (re-send 6.8 after 10 minutes) |
+| 7 | Reassignment when a courier goes offline mid-delivery |
+| 8–10 | Cancellation rules, courier deactivation, and assignment failure |
+| 11 | Takes this run's couriers off shift so the collection can be re-run |
+
+Requests marked "(waits)" pause for the `settleMs` collection variable (default
+6000 ms) so events can flow between services; raise it on a slow machine. Without
+`GEMINI_API_KEY`, couriers are assigned by the rule-based path and the explainer gives
+its factual fallback answer; the collection passes either way. For a clean
+presentation, start from empty databases, or make sure no couriers from earlier
+sessions are still on shift.
+
 ## UC1 — Manage Delivery Order (FR1-FR3)
 
 Order runs on port 8081.
