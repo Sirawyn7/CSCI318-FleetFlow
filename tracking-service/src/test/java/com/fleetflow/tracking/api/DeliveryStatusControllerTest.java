@@ -28,14 +28,15 @@ class DeliveryStatusControllerTest {
     @Test
     void returnsTheContractShapeNotificationExpects() throws Exception {
         when(queryService.statusForOrder(orderId)).thenReturn(new DeliveryStatus(orderId,
-                Instant.parse("2026-10-07T08:10:00Z"), null, Instant.parse("2026-10-07T07:55:00Z")));
+                Instant.parse("2026-10-07T08:10:00Z"), java.util.List.of("STATIONARY"),
+                Instant.parse("2026-10-07T07:55:00Z")));
 
         mockMvc.perform(get("/deliveries/order/{id}/status", orderId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value(orderId.toString()))
                 .andExpect(jsonPath("$.estimatedArrival").value("2026-10-07T08:10:00Z"))
                 .andExpect(jsonPath("$.updatedAt").value("2026-10-07T07:55:00Z"))
-                .andExpect(jsonPath("$.riskFlags").doesNotExist());
+                .andExpect(jsonPath("$.riskFlags[0]").value("STATIONARY"));
     }
 
     @Test

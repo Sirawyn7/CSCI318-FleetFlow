@@ -47,3 +47,13 @@ queryable over REST.
   the FR11-FR14 ADRs) remains separate, unclaimed work.
 - The view is never cleaned up when a delivery completes; that belongs with the
   completion/state-store lifecycle work (FR14).
+
+## Risk flags follow-up — 2026-10-14
+
+`riskFlags` is now populated using the same pattern: Tracking projects its own
+`DeliveryAtRisk` events into `delivery_risk_flags` (latest time per delivery and
+reason). No event clears a risk, so a reason counts as current only if it was raised
+for the current courier within `tracking.risk.alert-cooldown` +
+`tracking.risk.maximum-ping-gap`, the time within which detection re-raises a reason
+that still holds. A known delivery with no current reason, or one that has arrived,
+completed or been cancelled, reports `[]`.

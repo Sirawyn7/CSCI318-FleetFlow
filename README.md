@@ -296,11 +296,14 @@ Tracking runs on port 8084. Delivery completion/proof is covered by UC7/FR14 bel
   `SLA_BREACH`; publish `DeliveryAtRisk` with delivery/order/courier IDs. Thresholds
   live under `tracking.risk`; repeated reasons have a 10-minute cooldown.
 
-`GET /deliveries/order/{orderId}/status` reports the latest ETA for an order's
-delivery. A `null` `estimatedArrival` means no ETA yet. `riskFlags` is always `null`
-for now — it is reserved for FR13's risk signal, not yet wired into this read model —
-so the explainer cannot mistake that gap for "no risk flags." An order with no
-delivery returns 404 with an error message. See
+`GET /deliveries/order/{orderId}/status` reports the latest ETA and current risk flags
+for an order's delivery. A `null` `estimatedArrival` means no ETA yet. `riskFlags`
+lists the FR13 reasons (`STATIONARY`, `OFF_PACE`, `SLA_BREACH`) raised for the current
+courier within `tracking.risk.alert-cooldown` + `tracking.risk.maximum-ping-gap`
+(12 minutes by default): a reason that still holds is re-raised within that time, so
+an older one is treated as cleared. `[]` means no current risk, including once the
+delivery has arrived, completed or been cancelled. An order with no delivery returns
+404 with an error message. See
 [ADR 0016](docs/decisions/0016-tracking-status-read-model.md) for why this is a
 separate read model rather than querying the Streams topology's state store directly.
 

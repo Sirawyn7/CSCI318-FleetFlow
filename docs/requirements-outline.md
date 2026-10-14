@@ -197,7 +197,7 @@ Each cell is marked **documented** (stated in this outline or `AGENTS.md`) or **
 | `DeliveryEtaUpdated` | Tracking | Notification *(inferred)* |
 | `DeliveryNearDestination` | Tracking | Notification *(documented — FR15)* |
 | `DeliveryArrived` | Tracking | Dispatch *(UC4 terminal projection, ADR 0017)*, Tracking *(internal arrival persistence/snapshot cleanup — ADR 0013)*, Notification *(inferred)* |
-| `DeliveryAtRisk` | Tracking | Dispatch *(documented — FR9)*, Notification *(documented — FR15)* |
+| `DeliveryAtRisk` | Tracking | Dispatch *(documented — FR9)*, Notification *(documented — FR15)*, Tracking *(internal status read model — FR16 risk flags)* |
 | `DeliveryCompleted` | Tracking | Dispatch *(UC4 terminal projection, ADR 0017)*, Order *(documented — FR2 status: DELIVERED)*, Notification *(documented — FR15)*, Fleet *(documented — accepted ADR 0002, FR6 active-order count)* |
 | `NotificationSent` | Notification | none — terminal, audit-only. Worth confirming this is wanted at all rather than assumed. |
 
