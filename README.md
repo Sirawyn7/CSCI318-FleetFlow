@@ -166,8 +166,9 @@ A newly registered courier is not available for dispatch until it goes on shift 
 
 GET, PUT and deactivation responses include `activeOrderCount` and `deactivated`.
 Invalid profile values return 400; missing couriers return 404; capacity and
-deactivation conflicts return 409. Deactivation is idempotent and separate from
-on/off-shift status. Capacity cannot be reduced below current load.
+deactivation conflicts return 409. Deactivation is idempotent. It also takes an
+on-shift courier off shift, and a deactivated courier cannot go back on shift (409).
+Capacity cannot be reduced below current load.
 
 Fleet consumes `fleetflow.dispatch.order-assigned` and
 `fleetflow.tracking.delivery-completed` in consumer group `fleet-service`.
@@ -178,11 +179,10 @@ topics (`error.<source-topic>.fleet-service`) for investigation/replay.
 
 **Integration boundaries:** FR6 protects Fleet's local capacity invariant; consuming
 an already-published assignment cannot undo Dispatch's decision. Dispatch still
-needs its own assignment capacity checks. Profile updates and deactivation currently
-persist in Fleet only: the existing event catalogue has no profile-update or
-deactivation event, so these changes are not propagated to Dispatch's view in this
-slice. The availability endpoint does not currently check the deactivation flag, so
-a deactivated courier can still be put back on shift and become visible to Dispatch.
+needs its own assignment capacity checks. The event catalogue has no deactivation
+event, so deactivating an on-shift courier publishes `CourierAvailabilityChanged`
+(`available: false`) instead, which removes the courier from Dispatch's candidates.
+Profile updates still persist in Fleet only, because there is no profile-update event.
 Cancellation load adjustments are now handled by Fleet's `OrderCancelled` consumer.
 Reassignment load transfers are handled by Fleet's `OrderReassigned` consumer.
 

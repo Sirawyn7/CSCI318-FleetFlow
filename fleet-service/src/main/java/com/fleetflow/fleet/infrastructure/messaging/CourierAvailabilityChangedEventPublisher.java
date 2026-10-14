@@ -32,6 +32,9 @@ public class CourierAvailabilityChangedEventPublisher {
                 courier.getId(),
                 courier.getStatus() == CourierStatus.AVAILABLE
         );
-        streamBridge.send(BINDING_NAME, event);
+        if (!streamBridge.send(BINDING_NAME, event)) {
+            // Not IllegalStateException: the API maps that to 409, and a broker failure isn't a conflict.
+            throw new org.springframework.messaging.MessageDeliveryException("CourierAvailabilityChanged publication failed");
+        }
     }
 }

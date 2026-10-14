@@ -33,7 +33,7 @@ public class CourierAvailabilityServiceTest {
     void changeAvailabilitySavesAndPublishesTheUpdateCourier() {
         CourierAvailabilityService service = new CourierAvailabilityService(courierRepository, eventPublisher);
         Courier courier = Courier.register(VehicleType.VAN, 20, "ZONE_A");
-        when(courierRepository.findById(courier.getId())).thenReturn(Optional.of(courier));
+        when(courierRepository.findForUpdate(courier.getId())).thenReturn(Optional.of(courier));
         when(courierRepository.save(any(Courier.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         Courier result = service.changeAvailability(new ChangeCourierAvailabilityCommand(courier.getId(), true));
@@ -50,10 +50,25 @@ public class CourierAvailabilityServiceTest {
     }
 
     @Test
+    void deactivatedCourierCannotGoBackOnShift() {
+        CourierAvailabilityService service = new CourierAvailabilityService(courierRepository, eventPublisher);
+        Courier courier = Courier.register(VehicleType.VAN, 20, "ZONE_A");
+        courier.deactivate();
+        when(courierRepository.findForUpdate(courier.getId())).thenReturn(Optional.of(courier));
+
+        assertThrows(IllegalStateException.class,
+                () -> service.changeAvailability(new ChangeCourierAvailabilityCommand(courier.getId(), true)));
+
+        assertEquals(CourierStatus.OFFLINE, courier.getStatus());
+        org.mockito.Mockito.verifyNoInteractions(eventPublisher);
+        verify(courierRepository, org.mockito.Mockito.never()).save(any(Courier.class));
+    }
+
+    @Test
     void changeAvailabilityThrowsWhenCourierNotFound() {
         CourierAvailabilityService service = new CourierAvailabilityService(courierRepository, eventPublisher);
         UUID unknownId = UUID.randomUUID();
-        when(courierRepository.findById(unknownId)).thenReturn(Optional.empty());
+        when(courierRepository.findForUpdate(unknownId)).thenReturn(Optional.empty());
 
         assertThrows(NoSuchElementException.class,
                 () -> service.changeAvailability(new ChangeCourierAvailabilityCommand(unknownId, true)));

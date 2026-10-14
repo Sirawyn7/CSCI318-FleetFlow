@@ -52,6 +52,11 @@ spring:
           courierLoadChanged-out-0:
             producer:
               sync: true
+          # Sync so a broker failure fails the shift change or deactivation instead of
+          # silently leaving Dispatch with a stale availability view.
+          courierAvailabilityChanged-out-0:
+            producer:
+              sync: true
           orderAssignedConsumer-in-0:
             consumer:
               enableDlq: true

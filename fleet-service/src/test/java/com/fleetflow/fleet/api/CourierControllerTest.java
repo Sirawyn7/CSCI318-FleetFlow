@@ -60,6 +60,19 @@ class CourierControllerTest {
     }
 
     @Test
+    void goingOnShiftAfterDeactivationReturns409() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(availabilityService.changeAvailability(any(ChangeCourierAvailabilityCommand.class)))
+                .thenThrow(new IllegalStateException("A deactivated courier cannot go on shift"));
+
+        mockMvc.perform(patch("/api/couriers/{id}/availability", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"available\": true}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("A deactivated courier cannot go on shift"));
+    }
+
+    @Test
     void ingestLocationReturns404WhenCourierNotFound() throws Exception {
         UUID unknownId = UUID.randomUUID();
         when(locationService.ingestLocation(any(IngestCourierLocationCommand.class)))
