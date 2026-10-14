@@ -105,25 +105,26 @@ ledger to handle duplicate and out-of-order events; see
 
 ---
 
-## 2026-09-16 — CourierLoadChanged event catalogue amendment
+## 2026-09-16 — CourierLoadChanged event catalogue amendment (Steven)
 **Prompt/context:** While scoping FR7's capacity criterion, surfaced that Fleet's
 real-time active-order count is never published, only the static registration
 ceiling.
-**Proposed:** Add a CourierLoadChanged event now, but leave the actual publish/
+**Proposed by agent:** Add a CourierLoadChanged event now, but leave the actual publish/
 consume wiring for a later slice.
 **Decision:** Accepted.
-**Decision:** See ADR 0009 for full rationale — event added, wiring deferred to a
-separate slice.
+**Rationale:** See `docs/decisions/0009-fleet-publishes-courier-load-changed.md` for
+full rationale — event added, wiring deferred to a separate slice.
 
 ---
 
-## 2026-09-16 — Assignment idempotency ledger deviates from processed_events
+## 2026-09-16 — Assignment idempotency ledger deviates from processed_events (Steven)
 **Prompt/context:** The task specified reusing the processed_events ledger pattern
 for FR7's idempotency check; analysis showed that keying on OrderPlaced's eventId
 would collide with open_orders_view's own processed_events marker for the same
 event, causing assignment to silently no-op on first delivery, not just redelivery.
-**Decision:** Used assignment_decisions (keyed by orderId) as the idempotency
+**Proposed by agent:** Use assignment_decisions (keyed by orderId) as the idempotency
 ledger instead.
+**Decision:** Accepted.
 **Rationale:** The same OrderPlaced event already gets marked "processed" by the
 existing open-orders logic. If assignment checked the same row, it would always
 look "already done" and never actually run, even the first time. Keying the check
