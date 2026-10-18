@@ -1,0 +1,162 @@
+# FleetFlow demo stack. See "Quick demo (Docker)" in README.md.
+#
+#   docker compose up -d --build     start Kafka, the five services, Kafka UI and Dozzle
+#   docker compose run --rm demo     run the Postman collection with Newman
+#   docker compose down -v           stop everything and reset all data
+
+# Shared by the five services. YAML merges are shallow, so services must not
+# redefine these keys; each one supplies its own environment, command and ports.
+x-service: &service
+  image: fleetflow-app:local
+  depends_on:
+    kafka:
+      condition: service_healthy
+  healthcheck:
+    # $$ stops Compose interpolating; the container's bash expands SERVER_PORT.
+    test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/$$SERVER_PORT'"]
+    interval: 5s
+    start_period: 60s
+    retries: 24
+
+services:
+  kafka:
+    image: apache/kafka:3.9.2
+    ports:
+      - "9094:9094" # for services run from an IDE: KAFKA_BROKERS=localhost:9094
+    environment:
+      # Any KAFKA_* variable replaces the image's default config, so all of it is set here.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:9094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Single broker: Tracking's exactly_once_v2 needs the transaction log at RF 1.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null"]
+      interval: 10s
+      start_period: 20s
+      retries: 12
+
+  order-service:
+    <<: *service
+    build: .
+    command: ["java", "-Xmx512m", "-jar", "/app/order-service.jar"]
+    ports:
+      - "8081:8081"
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      SERVER_PORT: 8081
+
+  fleet-service:
+    <<: *service
+    pull_policy: never # built by order-service
+    command: ["java", "-Xmx512m", "-jar", "/app/fleet-service.jar"]
+    ports:
+      - "8082:8082"
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      SERVER_PORT: 8082
+
+  dispatch-service:
+    <<: *service
+    pull_policy: never
+    command: ["java", "-Xmx512m", "-jar", "/app/dispatch-service.jar"]
+    ports:
+      - "8083:8083"
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      SERVER_PORT: 8083
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+
+  tracking-service:
+    <<: *service
+    pull_policy: never
+    command: ["java", "-Xmx512m", "-jar", "/app/tracking-service.jar"]
+    ports:
+      - "8084:8084"
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      SERVER_PORT: 8084
+
+  notification-service:
+    <<: *service
+    pull_policy: never
+    command: ["java", "-Xmx512m", "-jar", "/app/notification-service.jar"]
+    ports:
+      - "8085:8085"
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      SERVER_PORT: 8085
+      ORDER_SERVICE_URL: http://order-service:8081
+      TRACKING_SERVICE_URL: http://tracking-service:8084
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+
+  # Topics and live messages: http://localhost:8080
+  kafka-ui:
+    image: kafbat/kafka-ui:v1.5.0
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: FleetFlow
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # Live logs of every container: http://localhost:9999
+  dozzle:
+    image: amir20/dozzle:v11.1.3
+    ports:
+      - "9999:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  # Runs the Postman collection: docker compose run --rm demo
+  demo:
+    profiles: [demo]
+    build:
+      context: ./demo
+      dockerfile_inline: |
+        FROM postman/newman:6.1.3-alpine
+        RUN npm install -g newman-reporter-htmlextra@1.23.1
+    image: fleetflow-demo:local
+    volumes:
+      - ./demo:/etc/newman
+    command:
+      - run
+      - fleetflow-demo.postman_collection.json
+      - --env-var
+      - orderUrl=http://order-service:8081
+      - --env-var
+      - fleetUrl=http://fleet-service:8082
+      - --env-var
+      - dispatchUrl=http://dispatch-service:8083
+      - --env-var
+      - trackingUrl=http://tracking-service:8084
+      - --env-var
+      - notificationUrl=http://notification-service:8085
+      - --reporters
+      - cli,htmlextra
+      - --reporter-htmlextra-export
+      - reports/fleetflow-demo.html
+    depends_on:
+      order-service:
+        condition: service_healthy
+      fleet-service:
+        condition: service_healthy
+      dispatch-service:
+        condition: service_healthy
+      tracking-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy

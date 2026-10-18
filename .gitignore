@@ -89,3 +89,6 @@ zookeeper-data/
 ### Postman ###
 # Keep the shared collection, ignore personal environment exports with local secrets
 *.postman_environment.json
+
+### Demo reports (docker compose run --rm demo) ###
+demo/reports/

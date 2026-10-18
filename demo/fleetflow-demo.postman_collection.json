@@ -107,8 +107,13 @@
       "description": "Placing an order publishes OrderPlaced. Dispatch's agent (or the rule-based fallback) assigns a courier and publishes OrderAssigned, which Order, Fleet, Tracking and Notification all consume.",
       "item": [
         {
-          "name": "2.1 Place an order (FR1)",
+          "name": "2.1 Place an order (FR1) (waits)",
           "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "// Dispatch consumes courier and order events on separate topics, so give it time to",
+              "// record courier A's shift and location before the order arrives.",
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('settleMs')));"
+            ] } },
             { "listen": "test", "script": { "type": "text/javascript", "exec": [
               "pm.test('Order created (201)', () => pm.response.to.have.status(201));",
               "const body = pm.response.json();",
@@ -131,9 +136,11 @@
             ] } },
             { "listen": "test", "script": { "type": "text/javascript", "exec": [
               "const body = pm.response.json();",
-              "pm.test('Status is ASSIGNED', () => pm.expect(body.status).to.eql('ASSIGNED'));",
+              "// Tracking starts the delivery as soon as the order is assigned, so the order may",
+              "// already be IN_TRANSIT by the time this runs.",
+              "pm.test('Status is ASSIGNED (or already IN_TRANSIT)', () => pm.expect(body.status).to.be.oneOf(['ASSIGNED', 'IN_TRANSIT']));",
               "pm.test('History records each stage with a timestamp', () => {",
-              "  pm.expect(body.statusHistory.map(h => h.status)).to.eql(['PLACED', 'ASSIGNED']);",
+              "  pm.expect(body.statusHistory.map(h => h.status).slice(0, 2)).to.eql(['PLACED', 'ASSIGNED']);",
               "  body.statusHistory.forEach(h => pm.expect(h.changedAt).to.be.a('string'));",
               "});"
             ] } }

@@ -32,7 +32,49 @@ deliberately do not follow it:
   a service itself, so it has no layers to have. See `docs/decisions/0004-fleetflow-contracts-published-language.md`
   for why this is a Published Language and not a Shared Kernel.
 
+## Quick demo (Docker)
+
+The only requirement is Docker Desktop (with the WSL 2 backend on Windows); Java and
+Maven are not needed. From the repository root:
+
+```
+docker compose up -d --build     # build and start Kafka, the five services, Kafka UI and Dozzle
+docker compose run --rm demo     # run the full demo collection, step by step, with pass/fail results
+docker compose down -v           # stop everything and reset all data
+```
+
+The first build downloads every dependency and takes a few minutes; later builds are
+cached. `up` returns once the containers have started; `docker compose ps` shows each
+service as `healthy` when it is ready (about a minute). `run --rm demo` also waits for
+that before it starts.
+
+While the demo runs, open:
+
+| What | Where |
+|---|---|
+| Kafka UI: every `fleetflow.*` topic and the events flowing through it | http://localhost:8080 |
+| Dozzle: live logs from all containers side by side | http://localhost:9999 |
+| HTML report of the last demo run (written when it finishes) | `demo/reports/fleetflow-demo.html` |
+| Service APIs, same ports as a local run | http://localhost:8081 – 8085 |
+
+The demo runs the [Postman collection](#demo-postman) with Newman and takes about two
+minutes. You can run it again straight away; folder 11 tidies up after each run. Always
+reset with `down -v` before a fresh presentation: a plain `down` leaves Kafka's data
+volume behind, and rebuilding while running wipes the services' databases but keeps
+Kafka's topics and consumer offsets.
+
+To enable the Gemini-backed dispatch agent and status explainer, copy `.env.example` to
+`.env` and set `GEMINI_API_KEY` before `up`. Without it, both use their rule-based
+fallbacks and the demo still passes.
+
+To work on one service from your IDE against the Compose stack, stop its container
+(`docker compose stop order-service`) and run it with `KAFKA_BROKERS=localhost:9094`.
+The containerised Notification service still calls Order and Tracking by their
+container names.
+
 ## Prerequisites
+
+To build and run services outside Docker:
 
 - **JDK 21** (Temurin recommended)
 - **Apache Maven 3.9+**
@@ -63,28 +105,33 @@ database file under `<service>/data/`):
 mvn -pl order-service spring-boot:run
 ```
 
+or run its packaged jar after `mvn install`:
+
+```
+java -jar order-service/target/order-service-0.1.0-SNAPSHOT.jar
+```
+
 Kafka is a mandated dependency of the project, and every service needs a broker on
 `localhost:9092` (override with the `KAFKA_BROKERS` environment variable). Each
 service's bindings are listed in its own `application.yml`; the event contracts and
 publishing pattern are described in `docs/decisions/0004-fleetflow-contracts-published-language.md`.
-There's no committed Docker Compose setup yet.
 
-For local development or a manual demo, run a single-node broker yourself, e.g.:
+To run only the broker from the Compose file and the services from Maven or your IDE:
 
 ```
-docker run -p 9092:9092 apache/kafka:latest
+docker compose up -d kafka
 ```
 
-(Confirm the current tag on Docker Hub — pin an exact version rather than `latest` for
-anything beyond a one-off local demo.)
+and set `KAFKA_BROKERS=localhost:9094` for each service.
 
 ## Demo (Postman)
 
 [`demo/fleetflow-demo.postman_collection.json`](demo/fleetflow-demo.postman_collection.json)
-walks through every use case against the running system. Start Kafka and all five
-services, import the collection into Postman, then run the folders in order, either one
-request at a time or with the Collection Runner. Each request's tests show what the
-step demonstrates.
+walks through every use case against the running system. `docker compose run --rm demo`
+runs it end to end (see [Quick demo](#quick-demo-docker)). To step through it by hand
+instead, start the stack, import the collection into Postman, then run the folders in
+order, either one request at a time or with the Collection Runner. Each request's tests
+show what the step demonstrates.
 
 | Folder | Shows |
 |---|---|
@@ -98,8 +145,8 @@ Requests marked "(waits)" pause for the `settleMs` collection variable (default
 6000 ms) so events can flow between services; raise it on a slow machine. Without
 `GEMINI_API_KEY`, couriers are assigned by the rule-based path and the explainer gives
 its factual fallback answer; the collection passes either way. For a clean
-presentation, start from empty databases, or make sure no couriers from earlier
-sessions are still on shift.
+presentation, start from empty databases (`docker compose down -v`), or make sure no
+couriers from earlier sessions are still on shift.
 
 ## UC1 — Manage Delivery Order (FR1-FR3)
 
